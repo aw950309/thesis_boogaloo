@@ -1,0 +1,19 @@
+# Hyperparameters for ML models
+# IDE generated content so far be WARY //ALEX
+
+random_forest:
+  n_estimators: 100
+  max_depth: 10
+  min_samples_split: 5
+  random_state: 42
+
+linear_regression:
+  fit_intercept: true
+
+# Species to analsze
+species:
+  - moose
+  - roe_deer
+  - wild_boar
+  - fallow_deer
+
