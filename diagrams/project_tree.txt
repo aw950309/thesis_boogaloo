@@ -1,0 +1,46 @@
+.
+├── .DS_Store
+├── .gitignore
+├── .idea
+│   ├── .name
+│   ├── copilot.data.migration.ask2agent.xml
+│   ├── inspectionProfiles
+│   │   └── profiles_settings.xml
+│   ├── misc.xml
+│   ├── modules.xml
+│   ├── thesis_boogaloo.iml
+│   ├── vcs.xml
+│   └── workspace.xml
+├── README.md
+├── Thesis 2_12.md
+├── config
+│   └── hyperparameters.yaml
+├── data
+│   ├── .DS_Store
+│   ├── processed
+│   └── raw
+│       └── stations_fixad.csv
+├── diagrams
+│   └── project_tree.txt
+├── notebooks
+│   ├── 01_data_cleaning.ipynb
+│   ├── 04_results_visualisation.ipynb
+│   ├── sample.ipynb
+│   └── test.ipynb
+├── pyproject.toml
+├── scripts
+│   └── train_final_model.py
+├── src
+│   ├── .DS_Store
+│   ├── __init__.py
+│   ├── config.py
+│   ├── data_prep.py
+│   ├── features.py
+│   ├── models.py
+│   ├── visualisation.py
+│   └── weather.py
+├── src.svg
+└── tests
+    └── test_data_prep.py
+
+12 directories, 32 files

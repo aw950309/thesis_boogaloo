@@ -1,0 +1,43 @@
+digraph G {
+concentrate=true;
+splines="ortho";
+rankdir="LR";
+subgraph legend{
+    rank = min;
+    label = "legend";
+    Legend [shape=none, margin=0, label = <
+        <table cellspacing="0" cellpadding="0" border="1"><tr><td>Code2flow Legend</td></tr><tr><td>
+        <table cellspacing="0">
+        <tr><td>Regular function</td><td width="50px" bgcolor='#cccccc'></td></tr>
+        <tr><td>Trunk function (nothing calls this)</td><td bgcolor='#966F33'></td></tr>
+        <tr><td>Leaf function (this calls nothing else)</td><td bgcolor='#6db33f'></td></tr>
+        <tr><td>Function call</td><td><font color='black'>&#8594;</font></td></tr>
+        </table></td></tr></table>
+        >];
+}node_8d3fdb75 [label="0: (global)()" name="train_final_model::(global)" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_e33e620e [label="8: main()" name="train_final_model::main" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_178aceb2 [label="82: find_nearest_station()" name="weather::find_nearest_station" shape="rect" style="rounded,filled" fillcolor="#cccccc" ];
+node_ad335be4 [label="157: get_temperature()" name="weather::get_temperature" shape="rect" style="rounded,filled" fillcolor="#966F33" ];
+node_01d0324b [label="97: get_temperatures_from_api()" name="weather::get_temperatures_from_api" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_b107d39d [label="13: haversine_distance()" name="weather::haversine_distance" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_ffc64347 [label="138: temp_at_time()" name="weather::temp_at_time" shape="rect" style="rounded,filled" fillcolor="#6db33f" ];
+node_8d3fdb75 -> node_e33e620e [color="#0072B2" penwidth="2"];
+node_178aceb2 -> node_b107d39d [color="#56B4E9" penwidth="2"];
+node_ad335be4 -> node_178aceb2 [color="#F0E442" penwidth="2"];
+node_ad335be4 -> node_01d0324b [color="#F0E442" penwidth="2"];
+node_ad335be4 -> node_ffc64347 [color="#F0E442" penwidth="2"];
+subgraph cluster_d68db66f {
+    node_e33e620e node_8d3fdb75;
+    label="File: train_final_model";
+    name="train_final_model";
+    style="filled";
+    graph[style=dotted];
+};
+subgraph cluster_d9280382 {
+    node_b107d39d node_178aceb2 node_01d0324b node_ffc64347 node_ad335be4;
+    label="File: weather";
+    name="weather";
+    style="filled";
+    graph[style=dotted];
+};
+}
