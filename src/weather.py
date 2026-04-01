@@ -181,3 +181,13 @@ def get_temperature(lat, lon, time, stations):
         "name": nearest["name"],
         "distance_km": round(nearest.dist, 2)
     }
+
+def run_weather_pipeline(df_collisions: pd.DataFrame, stations_path: str) -> pd.DataFrame:
+    """
+    Orchestrates the weather data pipeline:
+    1. Loads the weather stations metadata
+    2. Identifies the nearest station for each collision
+    3. Fetches the historical weather data (with caching to avoid redundant API calls)
+    4. Appends the temperature and weather features to the main collision dataset
+    """
+    pass

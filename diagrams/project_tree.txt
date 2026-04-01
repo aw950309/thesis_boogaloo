@@ -21,12 +21,23 @@
 │   └── raw
 │       └── stations_fixad.csv
 ├── diagrams
+│   ├── functions_callgraph_code2flow.gv
+│   ├── functions_callgraph_code2flow.svg
+│   ├── functions_callgraph_pyan3.svg
+│   ├── module_deps_pydeps.svg
 │   └── project_tree.txt
 ├── notebooks
 │   ├── 01_data_cleaning.ipynb
+│   ├── 01b_merge_infra_population.ipynb
+│   ├── 03_model_training.ipynb
+│   ├── 04_evaluation_and_figures.ipynb
 │   ├── 04_results_visualisation.ipynb
 │   ├── sample.ipynb
 │   └── test.ipynb
+├── outputs
+│   ├── .DS_Store
+│   ├── figures
+│   └── models
 ├── pyproject.toml
 ├── scripts
 │   └── train_final_model.py
@@ -36,11 +47,12 @@
 │   ├── config.py
 │   ├── data_prep.py
 │   ├── features.py
+│   ├── infrastructure.py
 │   ├── models.py
+│   ├── population.py
 │   ├── visualisation.py
 │   └── weather.py
-├── src.svg
 └── tests
     └── test_data_prep.py
 
-12 directories, 32 files
+15 directories, 41 files

@@ -5,13 +5,15 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="60d80d8c-f993-46dc-a6bd-276b943b99c1" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/notebooks/01b_merge_infra_population.ipynb" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/notebooks/04_evaluation_and_figures.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/thesis_boogaloo.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/thesis_boogaloo.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notebooks/02_exploratory_analysis.ipynb" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/outputs/figures/.gitkeep" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/outputs/models/.gitkeep" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/diagrams/project_tree.txt" beforeDir="false" afterPath="$PROJECT_DIR$/diagrams/project_tree.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/data_prep.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/data_prep.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/features.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/features.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/infrastructure.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/infrastructure.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/population.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/visualisation.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/visualisation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/weather.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/weather.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -32,8 +34,8 @@
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
       <list>
-        <option value="Python Script" />
         <option value="Jupyter Notebook" />
+        <option value="Python Script" />
       </list>
     </option>
   </component>
@@ -132,7 +134,7 @@
       <workItem from="1772470013614" duration="599000" />
       <workItem from="1772892568884" duration="92000" />
       <workItem from="1774453600601" duration="3780000" />
-      <workItem from="1774971860606" duration="9788000" />
+      <workItem from="1774971860606" duration="26842000" />
     </task>
     <servers />
   </component>
