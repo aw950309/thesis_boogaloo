@@ -1,7 +1,5 @@
-# src/weather.py
 """
-Weather data functions for wildlife collision thesis.
-Handles SMHI station data, distance calculations, and temperature retrieval.
+Weather pipeline for Wildlife Collision thesis (fixed version)
 """
 
 import numpy as np
@@ -11,23 +9,13 @@ from io import StringIO
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
-    """
-    Calculate distance in kilometers between two geographic points
-    using the Haversine formula.
+    R = 6371
 
-    lat1, lon1 = start point (can be a single point)
-    lat2, lon2 = end point(s) (can be arrays/Series from pandas)
-    """
-    R = 6371  # Earth's radius in km
-
-    # Convert degrees to radians
     lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
 
-    # Difference in latitude and longitude
     dlat = lat2 - lat1
     dlon = lon2 - lon1
 
-    # Haversine formula
     a = (
         np.sin(dlat / 2) ** 2 +
         np.cos(lat1) * np.cos(lat2) *
@@ -38,29 +26,11 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 
 def load_stations(path):
-    """
-    Load station CSV file and return DataFrame with columns:
-    id, name, lat, lon
-
-    Removes invalid coordinates and converts lat/lon to float.
-    """
-    df = pd.read_csv(
-        path,
-        sep=";",
-        header=None,
-        dtype=str,
-        engine="python"
-    )
-
-    # Remove first row (often headers or metadata)
+    df = pd.read_csv(path, sep=";", dtype=str, engine="python")
     df = df.iloc[1:].reset_index(drop=True)
 
-    def to_float(x):
-        """Convert string with comma decimal to float."""
-        if not isinstance(x, str):
-            return None
-        x = x.strip()
-        if x in ["NaN", "undefined", "", "Latitud", "Longitud"]:
+    def clean(x):
+        if pd.isna(x):
             return None
         x = x.replace(",", ".")
         try:
@@ -71,123 +41,85 @@ def load_stations(path):
     stations = pd.DataFrame({
         "id": df[0],
         "name": df[1],
-        "lat": df[4].apply(to_float),
-        "lon": df[5].apply(to_float)
+        "lat": df[4].apply(clean),
+        "lon": df[5].apply(clean)
     })
 
-    stations = stations.dropna(subset=["lat", "lon"])
-    return stations
+    return stations.dropna(subset=["lat", "lon"])
 
 
-def find_nearest_station(lat, lon, stations, n=1):
-    """
-    Find the n nearest weather stations to a given point.
-
-    lat, lon  = coordinates (decimal degrees)
-    stations  = DataFrame with columns: id, name, lat, lon
-    n         = number of nearest stations to return (default = 1)
-
-    Returns DataFrame with n nearest stations including 'dist' column.
-    """
+def find_nearest_station(lat, lon, stations):
     s = stations.copy()
     s["dist"] = haversine_distance(lat, lon, s.lat, s.lon)
-    return s.nsmallest(n, "dist")
+    return s.sort_values("dist").iloc[0]
 
 
-def get_temperatures_from_api(station_id):
-    """
-    Fetch temperature data from SMHI API for a given station.
-
-    Returns DataFrame with columns: time, temp
-    """
-    meta_url = (
+def get_station_weather(station_id):
+    url = (
         f"https://opendata-download-metobs.smhi.se/api/"
         f"version/1.0/parameter/1/station/{station_id}/period/corrected-archive.json"
     )
-    r = requests.get(meta_url)
+
+    r = requests.get(url)
     r.raise_for_status()
     meta = r.json()
 
-    csv_url = meta['data'][0]['link'][0]['href']
-    r_csv = requests.get(csv_url)
-    r_csv.raise_for_status()
+    csv_url = meta["data"][0]["link"][0]["href"]
 
-    # Find header row
-    lines = r_csv.text.splitlines()
-    start_idx = 0
+    r = requests.get(csv_url)
+    r.raise_for_status()
+
+    lines = r.text.splitlines()
+
+    start = 0
     for i, line in enumerate(lines):
-        if line.startswith("Datum;Tid (UTC);Lufttemperatur"):
-            start_idx = i
+        if line.startswith("Datum;Tid"):
+            start = i
             break
 
     df = pd.read_csv(
-        StringIO("\n".join(lines[start_idx:])),
-        sep=';',
-        decimal=',',
-        on_bad_lines='skip',
-        encoding='utf-8'
+        StringIO("\n".join(lines[start:])),
+        sep=";",
+        decimal=",",
+        on_bad_lines="skip"
     )
 
-    df['time'] = pd.to_datetime(df['Datum'] + ' ' + df['Tid (UTC)'], errors='coerce')
-    df['temp'] = pd.to_numeric(df['Lufttemperatur'], errors='coerce')
-    df = df.dropna(subset=['time', 'temp'])
+    df["time"] = pd.to_datetime(df["Datum"] + " " + df["Tid (UTC)"], errors="coerce")
+    df["temp"] = pd.to_numeric(df["Lufttemperatur"], errors="coerce")
 
-    return df[['time', 'temp']]
+    return df[["time", "temp"]].dropna()
 
 
-def temp_at_time(df, when):
-    """
-    Find the temperature closest to a given time.
-
-    df   = DataFrame with 'time' and 'temp' columns
-    when = target datetime (str or datetime)
-
-    Returns tuple: (temperature, actual_measurement_time)
-    """
-    df = df.copy()
-    df["time"] = pd.to_datetime(df["time"])
+def temp_at_time(weather_df, when):
+    weather_df = weather_df.copy()
+    weather_df["time"] = pd.to_datetime(weather_df["time"])
     when = pd.to_datetime(when)
 
-    df["time_diff"] = (df["time"] - when).abs()
-    row = df.loc[df["time_diff"].idxmin()]
+    weather_df["diff"] = (weather_df["time"] - when).abs()
 
-    return row["temp"], row["time"]
+    row = weather_df.loc[weather_df["diff"].idxmin()]
+
+    return row["temp"]
 
 
-def get_temperature(lat, lon, time, stations):
-    """
-    Get temperature for a given location at a specific time.
+def add_weather_feature(df, stations):
+    df = df.copy()
+    weather_cache = {}
+    station_ids = []
+    temps = []
 
-    lat, lon  = coordinates in decimal degrees
-    time      = target time (str or datetime)
-    stations  = DataFrame with stations (id, name, lat, lon)
+    for _, row in df.iterrows():
+        station = find_nearest_station(row["lat"], row["lon"], stations)
+        station_id = station["id"]
+        station_ids.append(station_id)
 
-    Returns dictionary with temperature, station, and metadata.
-    """
-    # Find nearest station
-    nearest = find_nearest_station(lat, lon, stations, 1).iloc[0]
+        if station_id not in weather_cache:
+            weather_cache[station_id] = get_station_weather(station_id)
 
-    # Fetch all temperatures for that station
-    df = get_temperatures_from_api(nearest.id)
+        weather = weather_cache[station_id]
+        temp = temp_at_time(weather, row["datetime"])
+        temps.append(temp)
 
-    # Find temperature closest to requested time
-    temp, actual_time = temp_at_time(df, time)
-
-    return {
-        "temperature": temp,
-        "requested_time": str(time),
-        "measured_time": str(actual_time),
-        "station": nearest.id,
-        "name": nearest["name"],
-        "distance_km": round(nearest.dist, 2)
-    }
-
-def run_weather_pipeline(df_collisions: pd.DataFrame, stations_path: str) -> pd.DataFrame:
-    """
-    Orchestrates the weather data pipeline:
-    1. Loads the weather stations metadata
-    2. Identifies the nearest station for each collision
-    3. Fetches the historical weather data (with caching to avoid redundant API calls)
-    4. Appends the temperature and weather features to the main collision dataset
-    """
-    pass
+    df["nearest_station_id"] = station_ids
+    df["temperature"] = temps
+    return df
