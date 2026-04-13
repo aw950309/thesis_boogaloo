@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import re
@@ -8,7 +7,6 @@ import geopandas as gpd
 
 
 def validate_projected_crs(gdf: gpd.GeoDataFrame, name: str = "GeoDataFrame") -> None:
-
     if gdf.crs is None:
         raise ValueError(f"{name} must have a CRS")
 
@@ -20,15 +18,81 @@ def validate_projected_crs(gdf: gpd.GeoDataFrame, name: str = "GeoDataFrame") ->
 
 
 def require_columns(df: pd.DataFrame, required: list[str], name: str = "DataFrame") -> None:
-
     missing = [col for col in required if col not in df.columns]
     if missing:
         raise ValueError(f"{name} is missing required columns: {missing}")
 
 
+def make_safe_column_name(value: str) -> str:
+    value = str(value).strip().lower()
+    value = re.sub(r"\s+", "_", value)
+    value = re.sub(r"[^a-zA-Z0-9_åäöÅÄÖ]", "", value)
+    return value
+
+
+def load_linear_layer(
+    path: str,
+    bbox=None,
+    rows=None,
+) -> gpd.GeoDataFrame:
+
+    gdf = gpd.read_file(path, bbox=bbox, rows=rows)
+
+    if gdf.empty:
+        raise ValueError(f"Loaded layer is empty: {path}")
+
+    if gdf.crs is None:
+        raise ValueError(f"Layer has no CRS: {path}")
+
+    return gdf
+
+
+def clean_linear_layer(
+    gdf: gpd.GeoDataFrame,
+    target_crs: str = "EPSG:3006",
+) -> gpd.GeoDataFrame:
+
+    if str(gdf.crs) != target_crs:
+        gdf = gdf.to_crs(target_crs)
+
+    gdf = gdf[gdf.geometry.notna()].copy()
+    gdf = gdf[gdf.geometry.type.isin(["LineString", "MultiLineString"])].copy()
+
+    if gdf.empty:
+        raise ValueError("No valid line geometries found in layer")
+
+    return gdf.reset_index(drop=True)
+
+
+def load_linear_layer_for_study_area(
+    path: str,
+    gdf_points: gpd.GeoDataFrame,
+    target_crs: str = "EPSG:3006",
+    buffer_m: float = 0,
+) -> gpd.GeoDataFrame:
+    """
+    Load any line-based layer clipped to the study area extent.
+    """
+    if gdf_points.crs is None:
+        raise ValueError("gdf_points must have a CRS")
+
+    points = gdf_points.to_crs(target_crs).copy()
+    minx, miny, maxx, maxy = points.total_bounds
+
+    bbox = (
+        minx - buffer_m,
+        miny - buffer_m,
+        maxx + buffer_m,
+        maxy + buffer_m,
+    )
+
+    gdf = load_linear_layer(path=path, bbox=bbox)
+    gdf = clean_linear_layer(gdf, target_crs=target_crs)
+
+    return gdf
+
 
 def load_roads(path: str, bbox=None, rows=None) -> gpd.GeoDataFrame:
-
     roads = gpd.read_file(path, bbox=bbox, rows=rows)
 
     if roads.empty:
@@ -47,7 +111,7 @@ def clean_roads(
     exclude_classes: list[str] | None = None,
     keep_only_classes: list[str] | None = None,
 ) -> gpd.GeoDataFrame:
-    if roads.crs != target_crs:
+    if str(roads.crs) != target_crs:
         roads = roads.to_crs(target_crs)
 
     roads = roads[roads.geometry.notna()].copy()
@@ -85,34 +149,31 @@ def inspect_road_classes(
     road_class_col: str = "Nattyp",
     top_n: int = 30
 ) -> pd.Series:
-
     require_columns(roads, [road_class_col], "roads")
 
-    return roads[road_class_col].astype(str).str.strip().str.lower().value_counts(dropna=False).head(top_n)
+    return (
+        roads[road_class_col]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .value_counts(dropna=False)
+        .head(top_n)
+    )
 
 
-def make_safe_column_name(value: str) -> str:
-
-    value = str(value).strip().lower()
-    value = re.sub(r"\s+", "_", value)
-    value = re.sub(r"[^a-zA-Z0-9_åäöÅÄÖ]", "", value)
-    return value
-
-
-def compute_road_segments_by_cell(
+def compute_segments_by_cell(
     grid: gpd.GeoDataFrame,
-    roads: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
 ) -> gpd.GeoDataFrame:
-
     require_columns(grid, ["cell_id"], "grid")
     validate_projected_crs(grid, "grid")
-    validate_projected_crs(roads, "roads")
+    validate_projected_crs(lines, "lines")
 
-    if grid.crs != roads.crs:
-        roads = roads.to_crs(grid.crs)
+    if grid.crs != lines.crs:
+        lines = lines.to_crs(grid.crs)
 
     segments = gpd.overlay(
-        roads,
+        lines,
         grid[["cell_id", "geometry"]],
         how="intersection"
     )
@@ -128,48 +189,50 @@ def compute_road_segments_by_cell(
     return segments
 
 
-def add_basic_road_exposure(
+def add_basic_line_exposure(
     grid: gpd.GeoDataFrame,
-    roads: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
+    length_col_name: str = "line_length_m",
+    density_col_name: str = "line_density",
 ) -> gpd.GeoDataFrame:
-    segments = compute_road_segments_by_cell(grid, roads)
+    segments = compute_segments_by_cell(grid, lines)
 
     if segments.empty:
         out = grid.copy()
-        out["road_length_m"] = 0.0
+        out[length_col_name] = 0.0
         out["cell_area_m2"] = out.geometry.area
-        out["road_density"] = 0.0
+        out[density_col_name] = 0.0
         return out
 
     exposure = (
         segments.groupby("cell_id", as_index=False)["segment_length_m"]
         .sum()
-        .rename(columns={"segment_length_m": "road_length_m"})
+        .rename(columns={"segment_length_m": length_col_name})
     )
 
     out = grid.merge(exposure, on="cell_id", how="left").copy()
-    out["road_length_m"] = out["road_length_m"].fillna(0)
+    out[length_col_name] = out[length_col_name].fillna(0)
 
     out["cell_area_m2"] = out.geometry.area
-    out["road_density"] = np.where(
+    out[density_col_name] = np.where(
         out["cell_area_m2"] > 0,
-        out["road_length_m"] / out["cell_area_m2"],
+        out[length_col_name] / out["cell_area_m2"],
         0
     )
 
     return out
 
 
-def add_nearest_road_distance(
+def add_nearest_line_distance(
     grid: gpd.GeoDataFrame,
-    roads: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
+    distance_col_name: str = "nearest_line_distance_m",
 ) -> gpd.GeoDataFrame:
-
     validate_projected_crs(grid, "grid")
-    validate_projected_crs(roads, "roads")
+    validate_projected_crs(lines, "lines")
 
-    if grid.crs != roads.crs:
-        roads = roads.to_crs(grid.crs)
+    if grid.crs != lines.crs:
+        lines = lines.to_crs(grid.crs)
 
     centroids = gpd.GeoDataFrame(
         grid[["cell_id"]].copy(),
@@ -179,18 +242,51 @@ def add_nearest_road_distance(
 
     nearest = gpd.sjoin_nearest(
         centroids,
-        roads[["geometry"]],
+        lines[["geometry"]],
         how="left",
-        distance_col="nearest_road_distance_m"
+        distance_col=distance_col_name
     )
 
     out = grid.merge(
-        nearest[["cell_id", "nearest_road_distance_m"]],
+        nearest[["cell_id", distance_col_name]],
         on="cell_id",
         how="left"
     ).copy()
 
-    out["nearest_road_distance_m"] = out["nearest_road_distance_m"].fillna(np.inf)
+    out[distance_col_name] = out[distance_col_name].fillna(np.inf)
+    return out
+
+
+def build_linear_features(
+    grid: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
+    prefix: str,
+) -> gpd.GeoDataFrame:
+
+    require_columns(grid, ["cell_id"], "grid")
+    validate_projected_crs(grid, "grid")
+    validate_projected_crs(lines, "lines")
+
+    if grid.crs != lines.crs:
+        lines = lines.to_crs(grid.crs)
+
+    length_col = f"{prefix}_length_m"
+    density_col = f"{prefix}_density"
+    distance_col = f"nearest_{prefix}_distance_m"
+
+    out = add_basic_line_exposure(
+        grid=grid,
+        lines=lines,
+        length_col_name=length_col,
+        density_col_name=density_col,
+    )
+
+    out = add_nearest_line_distance(
+        grid=out,
+        lines=lines,
+        distance_col_name=distance_col,
+    )
+
     return out
 
 
@@ -201,10 +297,9 @@ def add_road_class_exposure(
     selected_classes: list[str] | None = None,
     prefix: str = "road_class",
 ) -> gpd.GeoDataFrame:
-
     require_columns(roads, [road_class_col], "roads")
 
-    segments = compute_road_segments_by_cell(grid, roads)
+    segments = compute_segments_by_cell(grid, roads)
 
     if segments.empty:
         return grid.copy()
@@ -241,7 +336,10 @@ def add_road_class_exposure(
 
     out = grid.merge(class_lengths, on="cell_id", how="left").copy()
 
-    class_cols = [c for c in out.columns if c.startswith(f"{prefix}_") and c.endswith("_length_m")]
+    class_cols = [
+        c for c in out.columns
+        if c.startswith(f"{prefix}_") and c.endswith("_length_m")
+    ]
     for col in class_cols:
         out[col] = out[col].fillna(0)
 
@@ -258,7 +356,6 @@ def build_road_features(
     include_class_lengths: bool = True,
     selected_classes: list[str] | None = None,
 ) -> gpd.GeoDataFrame:
-
     require_columns(grid, ["cell_id"], "grid")
     validate_projected_crs(grid, "grid")
 
@@ -270,8 +367,11 @@ def build_road_features(
         keep_only_classes=keep_only_classes,
     )
 
-    out = add_basic_road_exposure(grid, roads)
-    out = add_nearest_road_distance(out, roads)
+    out = build_linear_features(
+        grid=grid,
+        lines=roads,
+        prefix="road",
+    )
 
     if include_class_lengths and road_class_col in roads.columns:
         class_df = add_road_class_exposure(
@@ -301,7 +401,6 @@ def load_roads_for_study_area(
     target_crs: str = "EPSG:3006",
     buffer_m: float = 0,
 ) -> gpd.GeoDataFrame:
-
     if gdf_points.crs is None:
         raise ValueError("gdf_points must have a CRS")
 

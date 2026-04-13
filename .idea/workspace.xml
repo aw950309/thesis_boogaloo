@@ -5,13 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="60d80d8c-f993-46dc-a6bd-276b943b99c1" name="Changes" comment="Added Grid, features and updated weather">
-      <change afterPath="$PROJECT_DIR$/notebooks/kms.ipynb" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/roads.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/thesis_boogaloo.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/thesis_boogaloo.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/notebooks/sample.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/notebooks/sample.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/weather.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/weather.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/roads.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/roads.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -46,12 +43,12 @@
     &quot;assignee&quot;: &quot;Stephanosons&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/aw950309/thesis_boogaloo.git&quot;,
-    &quot;accountId&quot;: &quot;fd8d9240-3d5a-437c-afce-79ce25c61f36&quot;
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/aw950309/thesis_boogaloo.git",
+    "accountId": "c751c855-f720-4d59-876d-71bea8393330"
   }
-}</component>
+}]]></component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
@@ -77,6 +74,7 @@
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "ai.playground.ignore.import.keys.banner.in.settings": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
     "dart.analysis.tool.window.visible": "false",
     "git-widget-placeholder": "main",
@@ -99,6 +97,7 @@
       <recent name="C:\Users\amand\PycharmProjects\thesis_boogaloo" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\Amanda\PycharmProjects\thesis_boogaloo\data" />
       <recent name="$PROJECT_DIR$/data/raw" />
       <recent name="$PROJECT_DIR$" />
       <recent name="$PROJECT_DIR$/" />
@@ -108,8 +107,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-9b0f141eb926-JavaScript-PY-253.30387.173" />
-        <option value="bundled-python-sdk-4762d8aabb82-6d6dccd035ac-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.30387.173" />
+        <option value="bundled-python-sdk-b63d5a1f7c97-b61e75351b1f-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.22158.340" />
       </set>
     </attachedChunks>
   </component>
