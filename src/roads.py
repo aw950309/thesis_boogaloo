@@ -34,9 +34,9 @@ def load_linear_layer(
     path: str,
     bbox=None,
     rows=None,
+    layer: str | None = None,
 ) -> gpd.GeoDataFrame:
-
-    gdf = gpd.read_file(path, bbox=bbox, rows=rows)
+    gdf = gpd.read_file(path, bbox=bbox, rows=rows, layer=layer)
 
     if gdf.empty:
         raise ValueError(f"Loaded layer is empty: {path}")
@@ -69,10 +69,8 @@ def load_linear_layer_for_study_area(
     gdf_points: gpd.GeoDataFrame,
     target_crs: str = "EPSG:3006",
     buffer_m: float = 0,
+    layer: str | None = None,
 ) -> gpd.GeoDataFrame:
-    """
-    Load any line-based layer clipped to the study area extent.
-    """
     if gdf_points.crs is None:
         raise ValueError("gdf_points must have a CRS")
 
@@ -86,7 +84,7 @@ def load_linear_layer_for_study_area(
         maxy + buffer_m,
     )
 
-    gdf = load_linear_layer(path=path, bbox=bbox)
+    gdf = load_linear_layer(path=path, bbox=bbox, layer=layer)
     gdf = clean_linear_layer(gdf, target_crs=target_crs)
 
     return gdf
