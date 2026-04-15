@@ -4,10 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="60d80d8c-f993-46dc-a6bd-276b943b99c1" name="Changes" comment="Har fixat roads att inkludera järnväg och djurstängsel, sample producerar nu också något sorts resultat bara för 2025 data dock">
+    <list default="true" id="60d80d8c-f993-46dc-a6bd-276b943b99c1" name="Changes" comment="Fixat så att rätt stängelsel lager är valt, ändrat risk definitionen">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/notebooks/sample.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/notebooks/sample.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/roads.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/roads.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notebooks/test.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/notebooks/test.ipynb" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -151,7 +151,14 @@
       <option name="presentableId" value="LOCAL−00002" />
       <updated>1776123470864</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL−00003" summary="Fixat så att rätt stängelsel lager är valt, ändrat risk definitionen">
+      <option name="closed" value="true" />
+      <created>1776202550447</created>
+      <option name="number" value="LOCAL−00003" />
+      <option name="presentableId" value="LOCAL−00003" />
+      <updated>1776202550447</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -171,7 +178,8 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Added Grid, features and updated weather" />
     <MESSAGE value="Har fixat roads att inkludera järnväg och djurstängsel, sample producerar nu också något sorts resultat bara för 2025 data dock" />
-    <option name="LAST_COMMIT_MESSAGE" value="Har fixat roads att inkludera järnväg och djurstängsel, sample producerar nu också något sorts resultat bara för 2025 data dock" />
+    <MESSAGE value="Fixat så att rätt stängelsel lager är valt, ändrat risk definitionen" />
+    <option name="LAST_COMMIT_MESSAGE" value="Fixat så att rätt stängelsel lager är valt, ändrat risk definitionen" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
