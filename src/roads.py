@@ -416,3 +416,78 @@ def load_roads_for_study_area(
     roads = clean_roads(roads, target_crs=target_crs)
 
     return roads
+
+def build_speedlimit_features(grid, speedlimit_gdf, speed_col="HTHAST"):
+    sl = speedlimit_gdf.copy()
+    sl = sl.dropna(subset=[speed_col, "geometry"])
+    sl[speed_col] = pd.to_numeric(sl[speed_col], errors="coerce")
+    sl = sl.dropna(subset=[speed_col])
+
+    if sl.crs != grid.crs:
+        sl = sl.to_crs(grid.crs)
+
+    sl = sl[[speed_col, "geometry"]].reset_index(drop=True)
+
+    # Step 1: spatial join to find which segments touch which cells
+    joined = gpd.sjoin(
+        sl,
+        grid[["cell_id", "geometry"]],
+        how="inner",
+        predicate="intersects",
+    )
+
+    # Step 2: clip each matched segment to its cell polygon
+    cell_lookup = grid.set_index("cell_id")["geometry"]
+
+    def clip_row(row):
+        cell_geom = cell_lookup.loc[row["cell_id"]]
+        return row.geometry.intersection(cell_geom)
+
+    joined = joined.copy()
+    joined["geometry"] = joined.apply(clip_row, axis=1)
+    joined = joined[~joined["geometry"].is_empty]
+    joined["segment_length_m"] = joined.geometry.length
+
+    if joined.empty:
+        out = grid[["cell_id", "geometry"]].copy()
+        for col in ["speedlimit_mean_weighted", "speedlimit_max", "speedlimit_min",
+                    "speedlimit_90plus_share", "speedlimit_segment_length_m"]:
+            out[col] = 0.0
+        return out
+
+    joined["weighted_speed"]      = joined[speed_col] * joined["segment_length_m"]
+    joined["is_90plus"]           = (joined[speed_col] >= 90).astype(int)
+    joined["highspeed_length_m"]  = joined["segment_length_m"] * joined["is_90plus"]
+
+    agg = (
+        joined.groupby("cell_id")
+        .agg(
+            speedlimit_segment_length_m=("segment_length_m", "sum"),
+            speedlimit_weighted_sum=("weighted_speed", "sum"),
+            speedlimit_max=(speed_col, "max"),
+            speedlimit_min=(speed_col, "min"),
+            speedlimit_highspeed_length_m=("highspeed_length_m", "sum"),
+        )
+        .reset_index()
+    )
+
+    agg["speedlimit_mean_weighted"] = (
+        agg["speedlimit_weighted_sum"] / agg["speedlimit_segment_length_m"]
+    )
+    agg["speedlimit_90plus_share"] = np.where(
+        agg["speedlimit_segment_length_m"] > 0,
+        agg["speedlimit_highspeed_length_m"] / agg["speedlimit_segment_length_m"],
+        0,
+    )
+
+    agg = agg[[
+        "cell_id", "speedlimit_mean_weighted", "speedlimit_max",
+        "speedlimit_min", "speedlimit_90plus_share", "speedlimit_segment_length_m",
+    ]]
+
+    out = grid[["cell_id", "geometry"]].merge(agg, on="cell_id", how="left")
+    for col in ["speedlimit_mean_weighted", "speedlimit_max", "speedlimit_min",
+                "speedlimit_90plus_share", "speedlimit_segment_length_m"]:
+        out[col] = out[col].fillna(0)
+
+    return out

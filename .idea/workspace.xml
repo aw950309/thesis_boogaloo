@@ -4,10 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="60d80d8c-f993-46dc-a6bd-276b943b99c1" name="Changes" comment="Fixat så att rätt stängelsel lager är valt, ändrat risk definitionen">
+    <list default="true" id="60d80d8c-f993-46dc-a6bd-276b943b99c1" name="Changes" comment="Cleanat upp sample och lagt all ny kod i test">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/notebooks/sample.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/notebooks/sample.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/notebooks/test.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/notebooks/test.ipynb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/roads.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/roads.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/weather.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/weather.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -24,6 +25,9 @@
       <entry key="chat-panel" value="Gemini 3.1 Pro" />
       <entry key="agent-panel" value="Gemini 3.1 Pro" />
     </selectedModels>
+  </component>
+  <component name="EmbeddingIndexingInfo">
+    <option name="cachedIndexableFilesCount" value="1039" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -80,19 +84,20 @@
     &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
     &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/alexwagner/Kod/GitHub/thesis_boogaloo&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/Amanda/PycharmProjects/thesis_boogaloo/data/Speedlimit&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.AcpAgentsConfigurable&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\Amanda\PycharmProjects\thesis_boogaloo\data\Speedlimit" />
       <recent name="C:\Users\amand\PycharmProjects\thesis_boogaloo" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
@@ -158,7 +163,14 @@
       <option name="presentableId" value="LOCAL−00003" />
       <updated>1776202550447</updated>
     </task>
-    <option name="localTasksCounter" value="4" />
+    <task id="LOCAL−00004" summary="Cleanat upp sample och lagt all ny kod i test">
+      <option name="closed" value="true" />
+      <created>1776254440139</created>
+      <option name="number" value="LOCAL−00004" />
+      <option name="presentableId" value="LOCAL−00004" />
+      <updated>1776254440139</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -179,7 +191,8 @@
     <MESSAGE value="Added Grid, features and updated weather" />
     <MESSAGE value="Har fixat roads att inkludera järnväg och djurstängsel, sample producerar nu också något sorts resultat bara för 2025 data dock" />
     <MESSAGE value="Fixat så att rätt stängelsel lager är valt, ändrat risk definitionen" />
-    <option name="LAST_COMMIT_MESSAGE" value="Fixat så att rätt stängelsel lager är valt, ändrat risk definitionen" />
+    <MESSAGE value="Cleanat upp sample och lagt all ny kod i test" />
+    <option name="LAST_COMMIT_MESSAGE" value="Cleanat upp sample och lagt all ny kod i test" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

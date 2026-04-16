@@ -362,3 +362,176 @@ def add_weather_feature(df, stations):
     df["nearest_station_id"] = station_ids
     df["temperature"] = temps
     return df
+
+def fetch_precipitation_stations_from_api() -> pd.DataFrame:
+
+    url = "https://opendata-download-metobs.smhi.se/api/version/1.0/parameter/23.json"
+
+    r = requests.get(url, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+
+    stations = []
+    for s in data.get("station", []):
+        lat = s.get("latitude")
+        lon = s.get("longitude")
+
+        try:
+            lat = float(str(lat).replace(",", "."))
+            lon = float(str(lon).replace(",", "."))
+        except Exception:
+            continue
+
+        stations.append({
+            "station_id": str(s.get("id")),
+            "station_name": s.get("name"),
+            "lat": lat,
+            "lon": lon,
+            "height": s.get("height"),
+            "country": s.get("country"),
+            "active": s.get("active"),
+        })
+
+    return pd.DataFrame(stations)
+
+def get_station_precipitation_history(
+    station_id: str,
+    cache_dir: str = "cache/precipitation",
+    force_download: bool = False
+) -> pd.DataFrame:
+    """
+    Fetch monthly precipitation totals for one station from SMHI.
+    Returns columns: period_start, precip_total
+    """
+    cache_dir = ensure_dir(cache_dir)
+    cache_file = cache_dir / f"precipitation_station_{station_id}.csv"
+
+    if cache_file.exists() and not force_download:
+        df_cached = pd.read_csv(cache_file)
+        df_cached["period_start"] = pd.to_datetime(df_cached["period_start"], errors="coerce")
+        df_cached["precip_total"] = pd.to_numeric(df_cached["precip_total"], errors="coerce")
+        return df_cached.dropna(subset=["period_start", "precip_total"]).reset_index(drop=True)
+
+    url = (
+        f"https://opendata-download-metobs.smhi.se/api/"
+        f"version/1.0/parameter/23/station/{station_id}/period/corrected-archive.json"
+    )
+
+    try:
+        r = requests.get(url, timeout=30)
+        if r.status_code != 200:
+            print(f"Metadata request failed for precipitation station {station_id}: {r.status_code}")
+            return pd.DataFrame(columns=["period_start", "precip_total"])
+
+        meta = r.json()
+        csv_url = meta["data"][0]["link"][0]["href"]
+
+        r2 = requests.get(csv_url, timeout=60)
+        if r2.status_code != 200:
+            print(f"CSV request failed for precipitation station {station_id}: {r2.status_code}")
+            return pd.DataFrame(columns=["period_start", "precip_total"])
+
+        lines = r2.text.splitlines()
+
+        start = None
+        for i, line in enumerate(lines):
+            line_clean = line.strip()
+            if "Datum" in line_clean and ";" in line_clean:
+                start = i
+                break
+
+        if start is None:
+            print(f"Could not find data header for precipitation station {station_id}")
+            return pd.DataFrame(columns=["period_start", "precip_total"])
+
+        df = pd.read_csv(
+            StringIO("\n".join(lines[start:])),
+            sep=";",
+            decimal=",",
+            on_bad_lines="skip",
+            low_memory=False
+        )
+
+        print(f"Parsed precipitation columns for station {station_id}: {df.columns.tolist()}")
+
+        date_col = next((c for c in df.columns if "Datum" in str(c)), None)
+        precip_col = next(
+            (
+                c for c in df.columns
+                if "nederb" in str(c).lower()
+                or "precip" in str(c).lower()
+            ),
+            None
+        )
+
+        print("date_col:", date_col)
+        print("precip_col:", precip_col)
+
+        if date_col is None or precip_col is None:
+            print(f"Missing expected precipitation columns for station {station_id}")
+            return pd.DataFrame(columns=["period_start", "precip_total"])
+
+        df["period_start"] = pd.to_datetime(df[date_col], errors="coerce")
+        df["period_start"] = df["period_start"].dt.to_period("M").dt.to_timestamp()
+        df["precip_total"] = pd.to_numeric(df[precip_col], errors="coerce")
+
+        out = (
+            df[["period_start", "precip_total"]]
+            .dropna()
+            .sort_values("period_start")
+            .reset_index(drop=True)
+        )
+
+        if not out.empty:
+            out.to_csv(cache_file, index=False)
+
+        return out
+
+    except Exception as e:
+        print(f"Error for precipitation station {station_id}: {e}")
+        return pd.DataFrame(columns=["period_start", "precip_total"])
+
+
+def build_cell_month_precipitation(
+    grid: gpd.GeoDataFrame,
+    cache_dir: str = "cache/precipitation"
+) -> pd.DataFrame:
+    stations = fetch_precipitation_stations_from_api()
+    cell_station = assign_nearest_temperature_station(grid, stations)
+
+    parts = []
+
+    for station_id in cell_station["station_id"].dropna().unique():
+        monthly = get_station_precipitation_history(
+            station_id=station_id,
+            cache_dir=cache_dir,
+            force_download=False
+        )
+
+        if monthly.empty:
+            continue
+
+        monthly["station_id"] = station_id
+        parts.append(monthly)
+
+    if not parts:
+        return pd.DataFrame(columns=[
+            "cell_id", "period_start", "precip_total"
+        ])
+
+    station_month = pd.concat(parts, ignore_index=True)
+
+    out = cell_station.merge(
+        station_month,
+        on="station_id",
+        how="left"
+    )
+
+    return out[[
+        "cell_id",
+        "period_start",
+        "precip_total",
+        "station_id",
+        "station_name",
+        "station_distance_km",
+    ]]
