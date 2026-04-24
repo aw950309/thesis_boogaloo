@@ -127,7 +127,8 @@ def assign_nearest_temperature_station(
     if grid.crs is None:
         raise ValueError("grid must have a CRS")
 
-    centroids = grid.to_crs("EPSG:4326").copy()
+    grid_proj = grid.to_crs("EPSG:3006")
+    centroids = grid_proj[[cell_id_col, "geometry"]].copy()
     centroids["geometry"] = centroids.geometry.centroid
     centroids["lat"] = centroids.geometry.y
     centroids["lon"] = centroids.geometry.x
