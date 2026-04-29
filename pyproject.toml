@@ -14,6 +14,7 @@ dependencies = [
     # Data handling
     "pandas>=2.0.0",        # DataFrames - load, clean, manipulate CSV/Excel data
     "numpy>=1.24.0",        # Math arrays - fast numerical operations
+    "fastparquet>=2024.0.0", # Parquet engine for cached intermediate features (fastparquet over pyarrow due to pandas 3 / pyarrow 24 incompatibility)
 
     # Machine learning
     "scikit-learn>=1.3.0",  # ML models - Random Forest, Linear Regression, etc.
