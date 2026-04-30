@@ -7,7 +7,7 @@ generated-by: repo-explainer
 tags: [reference, repo-explained, language/python, project/thesis_boogaloo]
 ---
 
-> A bachelor's thesis codebase that predicts wildlife-vehicle collision risk in Sweden. It reads twelve years of Swedish collision records (NVR), builds a 10×10 km grid over the country, joins each grid cell to roads, railways, fences and speed-limit segments, fetches matching SMHI weather (temperature + precipitation), engineers seasonal/hunting/rutting/light-condition features, and trains a Random Forest + Logistic Regression on the resulting cell-month panel to predict whether each cell is "high-risk" in a given month. The pipeline is mid-migration: it currently lives both inside `notebooks/test.ipynb` (the working notebook, 25 cells) and inside `scripts/train_final_model.py` (the future modular orchestrator). The README at root predates the migration and is partially stale — trust this document and `notes/PROJECT_BIBLE.md` (workspace-level) over the README.
+> A bachelor's thesis codebase that predicts wildlife-vehicle collision risk in Sweden. It reads twelve years of Swedish collision records (NVR), builds a 10×10 km grid over the country, joins each grid cell to roads, railways, fences and speed-limit segments, fetches matching SMHI weather (temperature + precipitation), engineers seasonal/hunting/rutting/light-condition features, and trains a Random Forest + Logistic Regression on the resulting cell-month panel to predict whether each cell is "high-risk" in a given month. The pipeline is fully modular: the canonical entry point is `scripts/train_final_model.py` (run via `.venv/bin/python scripts/train_final_model.py`). The notebook `notebooks/test.ipynb` is retained as a scratchpad but is no longer the orchestrator. The README at root predates the migration and is partially stale — trust this document and `notes/PROJECT_BIBLE.md` (workspace-level) over the README.
 
 # Quick reference
 
@@ -25,7 +25,8 @@ tags: [reference, repo-explained, language/python, project/thesis_boogaloo]
 | `config/` | YAML hyperparameters | You | No — pipeline reads it |
 | `data/` | Raw NVR/Trafikverket/SMHI inputs + processed outputs (~3.4 GB) | You / pipeline | Some yes, some no — see [[data]] |
 | `diagrams/` | Static call-graph + tree dumps | You (one-off) | Yes — regeneratable, but stale |
-| `notebooks/` | Jupyter notebooks, including the live `test.ipynb` pipeline | You | Mostly yes — except `test.ipynb` |
+| `notebooks/` | Jupyter notebooks — `test.ipynb` scratchpad + `sample.ipynb` (held for Amanda) | You | `test.ipynb` keep; `sample.ipynb` pending Amanda check |
+| `REPO_EXPLAINED.md` | This document — beginner-friendly walkthrough of every file and function | Claude Code | Yes — regeneratable |
 | `outputs/` | Trained models (.joblib, ~617 MB) + figure PNGs | The pipeline | Yes — pipeline regenerates |
 | `pyproject.toml` | Package metadata + dependencies | You | No — defines the project |
 | `README.md` | Front-page docs (partially stale) | You | No — but rewrite recommended |
@@ -66,7 +67,7 @@ code/
 └── thesis_boogaloo.egg-info/  ← Setuptools editable-install metadata
 ```
 
-The pipeline today has two parallel orchestrators: the notebook ([[test]] in `notebooks/`) is the working version, and the script ([[train_final_model]] in `scripts/`) is mid-migration. They both import the same modules from [[src]], so the modules are the source of truth and the orchestrators are equivalent ways of running them. The migration's purpose is to move from the notebook (which is hard to run automatically and version-control cleanly) to the script (which has a CLI, repo-root-relative paths, and proper unit tests).
+The pipeline has one canonical entry point: `scripts/train_final_model.py`. The notebook (`notebooks/test.ipynb`) is retained as a scratchpad for ad-hoc exploration but is no longer the orchestrator — both import the same modules from `src/`, but the script is what you run to produce results. The migration from notebook to modular script completed 2026-04-30 (Phases 0–9).
 
 # Top-level folders
 
@@ -407,10 +408,6 @@ Written by `export_artefacts()` in [[train_final_model]] line 224.
 
 Schema (head): `cell_id, period_start, collision_count, risk, road_length_m, cell_area_m2, road_density, nearest_road_distance_m, road_class_bilnät_length_m, rail_length_m, rail_density, nearest_rail_distance_m, rail_near_10km, fence_length_m, fence_density, nearest_fence_distance_m, fence_near_10km, speedlimit_mean_weighted, speedlimit_max, speedlimit_min, speedlimit_90plus_share, speedlimit_segment_length_m, temp_mean, temp_min, temp_max, precip_total, fallow_deer_lag1, moose_lag1, roe_deer_lag1, wild_boar_lag1, dawn_lag1, day_lag1, dusk_lag1, night_lag1, month, month_sin, month_cos, moose_hunting_frac, wild_boar_hunting_frac, roe_deer_hunting_frac, fallow_deer_hunting_frac, moose_rut_frac, roe_deer_rut_frac, wild_boar_rut_frac, fallow_deer_rut_frac, risk_prob`
 
-#### `data/processed/model_df_clean_2025.csv`
-
-47 MB. An older variant. According to the project bible's registry it's "ambiguous" — produced when the pipeline only used the 2025 collision file. Kept around for safety; not currently referenced. The notebook `sample.ipynb` cell 24 still writes this file (with a hardcoded Windows path). See "What I'd worry about" below.
-
 #### `data/processed/model_summary.csv`
 
 255 bytes. The model-evaluation summary table. Means and standard deviations of AUC, precision, recall, F1, accuracy across all expanding-window folds, broken down by model:
@@ -462,37 +459,9 @@ Static analysis output. You ran code-graphing tools once on 31 March 2026 and co
 
 ## `notebooks/`
 
-Jupyter notebooks. Mostly empty templates with one big exception: [[test]] (523 KB) is the live, working pipeline. The other `.ipynb` files were created early in the project as placeholders for a "one notebook per pipeline stage" structure that was never filled in — work converged onto `test.ipynb` instead.
+Two notebooks remain. The seven empty/stale placeholder notebooks (`01_data_cleaning.ipynb`, `01b_merge_infra_population.ipynb`, `03_model_training.ipynb`, `04_evaluation_and_figures.ipynb`, `04_results_visualisation.ipynb`, `kms.ipynb`, `test2.ipynb`) and the `.bak` backup were deleted in Phase 8 (2026-04-30). Only `test.ipynb` (scratchpad) and `sample.ipynb` (held pending Amanda check) remain.
 
 **Tag:** `#folder/notebooks`
-
-### `notebooks/01_data_cleaning.ipynb`
-
-615 bytes. Empty template. One empty code cell. The filename suggests "stage 1: clean the NVR collision data," but that work lives in [[test]] cell 1 instead.
-
-**File format:** Jupyter notebook (`.ipynb`) — see Glossary.
-
-**What if I deleted it:** No code or data lost. Just a stale placeholder.
-
-### `notebooks/01b_merge_infra_population.ipynb`
-
-615 bytes. Empty template. The filename anticipated merging infrastructure features with population density, but the population-density feature was dropped from the project (the source data wasn't obtainable). See [[CLAUDE]] `<workflow>`.
-
-### `notebooks/03_model_training.ipynb`
-
-615 bytes. Empty template. Modelling actually happens in [[test]] cells 13–16.
-
-### `notebooks/04_evaluation_and_figures.ipynb`
-
-615 bytes. Empty template. Duplicates the role of [[04_results_visualisation]] — both are empty, both share the `04_` prefix.
-
-### `notebooks/04_results_visualisation.ipynb`
-
-449 bytes. Effectively empty (one empty code cell, plus an empty raw cell). Same intended role as the previous file.
-
-### `notebooks/kms.ipynb`
-
-604 bytes. Empty scratch notebook. Filename is a private mnemonic (probably "Kilometres"). One empty cell. Per the project bible, confirmed empty during Phase 0 review.
 
 ### `notebooks/sample.ipynb`
 
@@ -502,7 +471,7 @@ Per the project bible, disposition is deferred to Phase 8; the file is a candida
 
 ### `notebooks/test.ipynb`
 
-523 KB. The live, working pipeline. 25 cells, every one a code cell. The migration's whole point is to peel this notebook apart into the modules under [[src]]. Cells map to pipeline stages roughly as follows:
+523 KB. The scratchpad. 25 cells. No longer the canonical orchestrator — `scripts/train_final_model.py` is production. Retained because Amanda uses it; do not delete or gitignore without her awareness. EDA cells 3–6, 18, 23 exist here only (they don't migrate). The cell-to-module map below is historical reference for where each piece ended up:
 
 | Cell | Lines | Role | Lives in module after migration |
 |------|-------|------|--------------------------------|
@@ -532,17 +501,7 @@ Per the project bible, disposition is deferred to Phase 8; the file is a candida
 | 23 | 7 | EDA — precip vs risk boxplot (DROPPED) | (none) |
 | 24 | 4 | CSV export | [[train_final_model]].`export_artefacts` |
 
-The notebook is treated as immutable by the migration: per the H8 hard constraint in [[CLAUDE]] (`<out_of_scope>`), nobody modifies `test.ipynb` until after the migration is fully verified.
-
-**What if I deleted it:** The migration's reference baseline is gone. The script in [[train_final_model]] still works because it doesn't import from the notebook, but the parity verification would lose its ground truth.
-
-### `notebooks/test.ipynb.pre-cell25-removal.bak`
-
-519 KB. A backup snapshot of `test.ipynb` from before cell 25 was removed (Phase 4 cleanup). Untracked by Git. Safe to delete after the migration is done.
-
-### `notebooks/test2.ipynb`
-
-1.6 KB. One code cell with an `add_weather_feature_cached` function that's a re-implementation of `add_weather_feature` from [[weather]]. Vestigial; never imported anywhere. Per the project bible, "STALE."
+**What if I deleted it:** Amanda loses her working entry point. The pipeline still runs fine via `scripts/train_final_model.py`; the parity baseline in `notes/notes_code/parity_baseline/` is the migration's ground truth, not this notebook.
 
 ### `notebooks/cache/`
 
@@ -639,18 +598,19 @@ Operational entry-point scripts. One file today: [[train_final_model]].
 
 ### `scripts/train_final_model.py`
 
-26 KB. 519 lines. The future orchestrator of the pipeline. Mid-migration: at the time of writing, it is band-by-band wired to call modules in [[src]] in the same sequence the notebook does. When Phase 6 closes, this script will be the canonical way to run the project; the notebook becomes a historical artefact.
+29 KB. The canonical pipeline orchestrator. Migration complete (Phase 6 verified 2026-04-30). Run with `.venv/bin/python scripts/train_final_model.py` from the `code/` root. Parity-verified bit-stable against the Phase 1 baseline (all artefacts max_absdiff=0).
 
 **Top-level structure:**
 
 1. **Imports** (lines 11–43) — all the science/ML/plotting imports plus `from src import data_prep, grid as grid_mod, features, infrastructure, weather, models, visualisation`
 2. **`FEATURES` list** (lines 54–66) — the 31 model feature names, in the canonical order matching the Phase 1 baseline
 3. **`GROUPS` dict** (lines 78–94) — feature-group definition for the per-group importance plot. Carries an inline DEVIATION NOTE explaining why the architecturally-cleaner three-item `"speed"` group was deferred (would break hash-equal parity with the baseline)
-4. **Kawaii progress reporter** (lines 97–200) — sparkly emoji-themed step counter. 23 logical steps, each gets a sparkly header and a kaomoji-decorated completion line. Three constants (`_STEP_EMOJI`, `_TRAIL_EMOJI`, `_KAOMOJI`) and three banner functions (`_step_start`, `_step_end`, `_banner_start`, `_banner_end`). Personalised for Amanda. Deterministic via `_RNG = _random.Random(42)`. The block is intentionally over-the-top — read line 161 for an idea
-5. **`export_artefacts()`** (lines 203–225) — writes the three CSV outputs
-6. **`main()`** (lines 228–458) — the orchestrator
-7. **CLI argparser** (lines 462–503) — `_build_argparser` defines every `main()` parameter as a CLI flag with a default that resolves relative to `_REPO_ROOT` (so the script is invocable from any working directory)
-8. **`if __name__ == "__main__":`** (lines 506–519) — parses args, calls `main(...)`
+4. **Kawaii progress reporter** (lines 97–200) — sparkly emoji-themed step counter. 23 logical steps, each gets a sparkly header and a kaomoji-decorated completion line. Three constants (`_STEP_EMOJI`, `_TRAIL_EMOJI`, `_KAOMOJI`) and four banner functions (`_step_start`, `_step_end`, `_banner_start`, `_banner_end`). Personalised for Amanda. Deterministic via `_RNG = _random.Random(42)`
+5. **`_dump_parity_arrays()`** — writes Phase 6 parity-verification artefacts (OOF arrays, behaviour signatures, calibration/ROC/PR curves, cell risk, group importance) to a directory. Only called when `--dump-parity-arrays` flag is passed; no-op otherwise
+6. **`export_artefacts()`** — writes the three CSV outputs
+7. **`main()`** — the orchestrator (Bands A–H)
+8. **CLI argparser** (`_build_argparser`) — every `main()` parameter as a CLI flag; defaults resolve relative to `_REPO_ROOT`. Includes `--dump-parity-arrays DIR` (Phase 6 parity verification) and `--use-cache`/`--no-cache` toggle
+9. **`if __name__ == "__main__":`** — parses args, calls `main(...)`
 
 **Key functions:**
 
@@ -1317,7 +1277,7 @@ Lines 496–538. Mirror of [[build_cell_month_temperature]] for precipitation. R
 
 ## `tests/`
 
-pytest smoke tests. Six files, 24 tests total. Phase 5 added them; before Phase 5 there was only one stub test file.
+pytest smoke tests. Six files, 23 tests total. Phase 5 added them; before Phase 5 there was only one stub test file.
 
 **Tag:** `#folder/tests`
 
@@ -1779,11 +1739,11 @@ Specific things in this codebase a careful reader would flag.
 
 5. **`notebooks/sample.ipynb` (266 KB) embeds Amanda's Windows path.** Cell 24: `model_df_clean.to_csv("C:/Users/Amanda/PycharmProjects/thesis_boogaloo/data/processed/model_df_clean_2025.csv", ...)`. Unrunnable on this machine. Per the project bible, disposition is deferred to Phase 8 — but it's a candidate for deletion now.
 
-6. **`notebooks/test2.ipynb` (1.6 KB).** One re-implementation of an existing weather function. Vestigial. **Fix:** delete.
+6. ~~**`notebooks/test2.ipynb`**~~ — **DELETED 2026-04-30 (Phase 8).**
 
-7. **`notebooks/01_data_cleaning.ipynb`, `01b_merge_infra_population.ipynb`, `03_model_training.ipynb`, `04_evaluation_and_figures.ipynb`, `04_results_visualisation.ipynb`, `kms.ipynb`** — six empty placeholder notebooks. The two `04_*` files have the same prefix and the same intended role. **Fix:** pick one, delete the rest.
+7. ~~**Empty placeholder notebooks** (`01_data_cleaning.ipynb`, `01b_merge_infra_population.ipynb`, `03_model_training.ipynb`, `04_evaluation_and_figures.ipynb`, `04_results_visualisation.ipynb`, `kms.ipynb`)~~ — **DELETED 2026-04-30 (Phase 8).**
 
-8. **`notebooks/test.ipynb.pre-cell25-removal.bak` (519 KB)** — backup snapshot of `test.ipynb` from before Phase 4. Untracked. **Fix:** delete after the migration is verified.
+8. ~~**`notebooks/test.ipynb.pre-cell25-removal.bak`**~~ — **DELETED 2026-04-30 (Phase 8).**
 
 9. **`thesis_boogaloo.egg-info/SOURCES.txt` is missing `grid.py`, `infrastructure.py`, `roads.py`** — files that exist now but didn't when the egg-info was last regenerated (28 April). Self-fixes on the next `pip install -e .`.
 
@@ -1793,7 +1753,7 @@ Specific things in this codebase a careful reader would flag.
 
 12. **Python 3.14 is unusually new.** The venv was created with Python 3.14 (released late 2025). If Amanda's machine still runs 3.11 or 3.12, the `.venv` she creates from scratch will have a *different* Python version. The pipeline doesn't use 3.14-specific features so far as I can tell, but it could trip on package-version compatibility.
 
-13. **Two CSVs in `data/processed/`: `model_df_clean.csv` (55 MB) and `model_df_clean_2025.csv` (47 MB)** — the second is from an older 2025-only run. The project bible's registry calls this "ambiguous." It's untracked by Git but consumes disk. **Fix:** delete or move to a `data/archive/` folder once you confirm nothing reads it.
+13. ~~**`model_df_clean_2025.csv`**~~ — **DELETED 2026-04-30 (Phase 9, FLAG_007)**. Verified as an older 32-column variant (missing speed-limit, hunting/rut features). Only `model_df_clean.csv` (55 MB, 46 columns) remains.
 
 14. **Test coverage is thin compared to pipeline complexity.** 24 tests for ~1,800 lines of source. The infrastructure tests don't exercise the GeoPackage path (only the cache hit). The visualisation tests don't compare images. Weather has no unit tests at all (per H8). This is fine for a thesis but would be a problem for production.
 
@@ -1801,4 +1761,4 @@ Specific things in this codebase a careful reader would flag.
 
 # Update log
 
-(Empty on first generation.)
+- **2026-04-30 (Phase 9):** Updated for migration completion. Migration is COMPLETE — `scripts/train_final_model.py` is the canonical orchestrator; `test.ipynb` is scratchpad only. Removed entries for 7 deleted notebooks + `.bak`. Removed `model_df_clean_2025.csv` entry (deleted, FLAG_007). Updated `train_final_model.py` description (size, status, `_dump_parity_arrays` and `--dump-parity-arrays` added). Fixed test count (23, not 24). Marked "What I'd worry about" items 6/7/8/13 as resolved.
