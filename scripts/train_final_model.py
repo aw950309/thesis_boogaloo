@@ -200,6 +200,69 @@ def _banner_end(output_dir: Path, models_dir: Path, figures_dir: Path) -> None:
     print("")
 
 
+def _dump_parity_arrays(
+    dump_dir: Path,
+    *,
+    oof_probs: np.ndarray,
+    oof_labels: np.ndarray,
+    results_df: pd.DataFrame,
+    mean_importance: pd.Series,
+    calibration_xy: pd.DataFrame,
+    fpr: np.ndarray,
+    tpr: np.ndarray,
+    roc_thresholds: np.ndarray,
+    precision: np.ndarray,
+    recall: np.ndarray,
+    pr_thresholds: np.ndarray,
+    ap: float,
+    cell_risk: pd.DataFrame,
+    group_importance_df: pd.DataFrame,
+    rf_final_preds: np.ndarray,
+    rf_calibrated_preds: np.ndarray,
+) -> None:
+    """Write Phase 6 parity-verification artefacts to dump_dir.
+
+    Only called when --dump-parity-arrays is supplied. Default run is a no-op
+    (dump_dir is None). All artefact names and formats mirror the Phase 1
+    baseline in notes/notes_code/parity_baseline/.
+    """
+    arrays_dir = dump_dir / "arrays"
+    arrays_dir.mkdir(parents=True, exist_ok=True)
+
+    np.save(arrays_dir / "rf_final_predictions.npy", rf_final_preds)
+    np.save(arrays_dir / "rf_calibrated_predictions.npy", rf_calibrated_preds)
+    np.save(arrays_dir / "oof_probs.npy", oof_probs)
+    np.save(arrays_dir / "oof_labels.npy", oof_labels)
+
+    results_df.to_csv(arrays_dir / "results_df.csv", index=False)
+    mean_importance.to_csv(arrays_dir / "mean_importance.csv")
+
+    calibration_xy.to_csv(arrays_dir / "calibration_curve.csv", index=False)
+
+    pd.DataFrame({"fpr": fpr, "tpr": tpr, "thresholds": roc_thresholds}).to_csv(
+        arrays_dir / "roc_curve.csv", index=False
+    )
+
+    # pr_thresholds is length N-1; pad with NaN to align with precision/recall
+    # length-N arrays (matches sklearn's precision_recall_curve convention and
+    # the Phase 1 baseline capture).
+    pr_thresh_padded = np.append(pr_thresholds, np.nan)
+    pd.DataFrame({
+        "precision": precision,
+        "recall": recall,
+        "thresholds": pr_thresh_padded,
+    }).to_csv(arrays_dir / "pr_curve.csv", index=False)
+
+    (arrays_dir / "pr_average_precision.txt").write_text(
+        f"{ap:.18f}\n", encoding="utf-8"
+    )
+
+    cell_risk.to_csv(arrays_dir / "cell_risk.csv", index=False)
+    group_importance_df.to_csv(arrays_dir / "group_importance.csv", index=False)
+
+    print(f"        📋 parity arrays written to {arrays_dir}", flush=True)
+
+
 def export_artefacts(
     model_df_clean: pd.DataFrame,
     mean_importance: pd.Series,
@@ -241,6 +304,7 @@ def main(
     species_filter: str | None = None,
     use_cache: bool = True,
     hyperparameters_path: Path = Path("config/hyperparameters.yaml"),
+    dump_parity_arrays: Path | None = None,
 ) -> None:
     """Run the WVC pipeline end-to-end.
 
@@ -439,6 +503,29 @@ def main(
     export_artefacts(model_df_clean, mean_importance, results_df, output_dir)
     _step_end(t, f"3 CSVs written to {output_dir.name}/")
 
+    # === Phase 6 parity dump (opt-in; --dump-parity-arrays only) ===
+    if dump_parity_arrays is not None:
+        rf_calibrated_preds = rf_calibrated.predict_proba(model_df_clean[FEATURES])[:, 1]
+        _dump_parity_arrays(
+            dump_parity_arrays,
+            oof_probs=oof_probs,
+            oof_labels=oof_labels,
+            results_df=results_df,
+            mean_importance=mean_importance,
+            calibration_xy=calibration_xy,
+            fpr=fpr,
+            tpr=tpr,
+            roc_thresholds=roc_thresholds,
+            precision=precision,
+            recall=recall,
+            pr_thresholds=pr_thresholds,
+            ap=ap,
+            cell_risk=cell_risk,
+            group_importance_df=group_importance_df,
+            rf_final_preds=model_df_clean["risk_prob"].to_numpy(),
+            rf_calibrated_preds=rf_calibrated_preds,
+        )
+
     # === Save joblib models + figures (orchestrator polish; Row 23) ===
     t = _step_start("Saving joblib models + figure PNGs")
     import joblib
@@ -500,6 +587,9 @@ def _build_argparser() -> "argparse.ArgumentParser":
                            help="Recompute parquet feature caches from scratch")
     p.add_argument("--hyperparameters-path", type=Path, default=_REPO_ROOT / "config/hyperparameters.yaml",
                    help=f"YAML hyperparameters file (default: {_REPO_ROOT / 'config/hyperparameters.yaml'})")
+    p.add_argument("--dump-parity-arrays", type=Path, default=None, metavar="DIR",
+                   help="Phase 6 only: write parity-verification artefacts to DIR/arrays/. "
+                        "Default behaviour unchanged when flag is absent.")
     return p
 
 
@@ -516,4 +606,5 @@ if __name__ == "__main__":
         species_filter=args.species_filter,
         use_cache=args.use_cache,
         hyperparameters_path=args.hyperparameters_path,
+        dump_parity_arrays=args.dump_parity_arrays,
     )
