@@ -58,7 +58,7 @@ code/
 ├── config/               ← hyperparameters.yaml
 ├── data/                 ← All input + intermediate data, ~3.4 GB
 ├── diagrams/             ← Static call-graph + tree dumps
-├── notebooks/            ← Jupyter notebooks (test.ipynb is the live pipeline)
+├── notebooks/            ← Jupyter notebooks (test.ipynb scratchpad — calls src/ modules)
 ├── outputs/              ← Pipeline's models/ and figures/
 ├── pyproject.toml        ← Package metadata + dependencies
 ├── scripts/              ← Entry-point scripts (train_final_model.py)
@@ -471,35 +471,37 @@ Per the project bible, disposition is deferred to Phase 8; the file is a candida
 
 ### `notebooks/test.ipynb`
 
-523 KB. The scratchpad. 25 cells. No longer the canonical orchestrator — `scripts/train_final_model.py` is production. Retained because Amanda uses it; do not delete or gitignore without her awareness. EDA cells 3–6, 18, 23 exist here only (they don't migrate). The cell-to-module map below is historical reference for where each piece ended up:
+The scratchpad. 25 cells. No longer the canonical orchestrator — `scripts/train_final_model.py` is production. Retained because Amanda uses it; do not delete or gitignore without her awareness. **Refactored 2026-04-30**: all pipeline cells now call `src/` modules directly (same functions as `train_final_model.py`). Parity-verified bit-identical to Phase 1 baseline after refactor.
 
-| Cell | Lines | Role | Lives in module after migration |
-|------|-------|------|--------------------------------|
-| 0 | 27 | Imports + globals | (orchestrator only) |
-| 1 | 51 | `load_collision_data` definition + `gdf` load | [[data_prep]] |
-| 2 | 45 | `build_cell_month_table_full` panel build | [[grid]].`build_cell_month_panel` |
-| 3 | 40 | EDA — daylight × species table (DROPPED, won't migrate) | (none) |
-| 4 | 25 | EDA — light-condition shares (DROPPED) | (none) |
-| 5 | 15 | EDA — season classification (DROPPED) | (none) |
-| 6 | 22 | EDA — paired barplot (DROPPED) | (none) |
-| 7 | 35 | `build_lagged_light` definition | [[features]] |
-| 8 | 29 | `build_lagged_species` definition | [[features]] |
-| 9 | 121 | The infrastructure pipeline (USE_CACHE pattern) | [[infrastructure]].`build_infrastructure_features` |
-| 10 | 24 | Weather merge | [[train_final_model]].`main` (Band D) |
-| 11 | 10 | Lag features merge | [[train_final_model]].`main` |
-| 12 | 23 | Cyclical month + hunting + rut features | [[features]] |
-| 13 | 11 | `make_expanding_time_splits` | [[models]] |
-| 14 | 88 | `evaluate_time_splits` | [[models]] |
-| 15 | 10 | Calibration plot | [[visualisation]].`plot_calibration` |
-| 16 | 10 | `fit_final_model` | [[models]] |
-| 17 | 6 | Top-N feature importance plot | [[visualisation]].`plot_top_features` |
-| 18 | 2 | EDA — speedlimit correlation matrix (DROPPED) | (none) |
-| 19 | 31 | Spatial risk maps | [[visualisation]].`plot_spatial_risk_maps` |
-| 20 | 12 | ROC curve | [[visualisation]].`plot_roc` |
-| 21 | 12 | PR curve | [[visualisation]].`plot_precision_recall` |
-| 22 | 20 | Feature importance by group | [[visualisation]].`plot_feature_importance_by_group` |
-| 23 | 7 | EDA — precip vs risk boxplot (DROPPED) | (none) |
-| 24 | 4 | CSV export | [[train_final_model]].`export_artefacts` |
+EDA cells 3–6, 18, 23 remain inline (no `src/` equivalent; Amanda's exploratory cells). Cells 10–11 retain glue logic with a Swedish warning comment (`// Alex`) pointing to the mirror in `train_final_model.py`.
+
+| Cell | Current content | Module called |
+|------|----------------|---------------|
+| 0 | Imports — `src/` modules + `FEATURES`, `GROUPS` from config | (orchestrator only) |
+| 1 | `load_collision_data_multi_year(...)` + `DATA_DIR` | [[data_prep]] |
+| 2 | `build_cell_month_panel(gdf, cell_size=10000)` | [[grid]] |
+| 3 | EDA — daylight × species (inline, not in `src/`) | (none) |
+| 4 | EDA — light-condition shares (inline) | (none) |
+| 5 | EDA — season classification (inline) | (none) |
+| 6 | EDA — paired barplot (inline) | (none) |
+| 7 | `build_lagged_light(joined)` | [[features]] |
+| 8 | `build_lagged_species(joined)` | [[features]] |
+| 9 | `InfrastructurePaths` + `build_infrastructure_features(...)` + merge + proximity flags | [[infrastructure]] |
+| 10 | Weather merge glue (⚠ mirror in `train_final_model.py` Band D) | [[weather]] |
+| 11 | Lag features merge glue (⚠ mirror in Band D) | (inline join) |
+| 12 | `add_cyclical_month` + `build_hunting_features` + `build_rut_features` + dropna | [[features]] |
+| 13 | `load_hyperparameters` + `make_expanding_time_splits` | [[models]] |
+| 14 | `evaluate_time_splits(...)` + summary print | [[models]] |
+| 15 | `plot_calibration(oof_probs, oof_labels)` | [[visualisation]] |
+| 16 | `fit_final_model(...)` | [[models]] |
+| 17 | `plot_top_features(mean_importance, top_n=15)` | [[visualisation]] |
+| 18 | EDA — speedlimit correlation matrix (inline) | (none) |
+| 19 | `plot_spatial_risk_maps(...)` + explicit `risk_prob` mutation | [[visualisation]] |
+| 20 | `plot_roc(oof_probs, oof_labels)` | [[visualisation]] |
+| 21 | `plot_precision_recall(oof_probs, oof_labels)` | [[visualisation]] |
+| 22 | `plot_feature_importance_by_group(mean_importance, GROUPS)` | [[visualisation]] |
+| 23 | EDA — precip vs risk boxplot (inline) | (none) |
+| 24 | `export_artefacts(model_df_clean, mean_importance, results_df, ...)` | [[exports]] |
 
 **What if I deleted it:** Amanda loses her working entry point. The pipeline still runs fine via `scripts/train_final_model.py`; the parity baseline in `notes/notes_code/parity_baseline/` is the migration's ground truth, not this notebook.
 
@@ -602,15 +604,13 @@ Operational entry-point scripts. One file today: [[train_final_model]].
 
 **Top-level structure:**
 
-1. **Imports** (lines 11–43) — all the science/ML/plotting imports plus `from src import data_prep, grid as grid_mod, features, infrastructure, weather, models, visualisation`
-2. **`FEATURES` list** (lines 54–66) — the 31 model feature names, in the canonical order matching the Phase 1 baseline
-3. **`GROUPS` dict** (lines 78–94) — feature-group definition for the per-group importance plot. Carries an inline DEVIATION NOTE explaining why the architecturally-cleaner three-item `"speed"` group was deferred (would break hash-equal parity with the baseline)
-4. **Kawaii progress reporter** (lines 97–200) — sparkly emoji-themed step counter. 23 logical steps, each gets a sparkly header and a kaomoji-decorated completion line. Three constants (`_STEP_EMOJI`, `_TRAIL_EMOJI`, `_KAOMOJI`) and four banner functions (`_step_start`, `_step_end`, `_banner_start`, `_banner_end`). Personalised for Amanda. Deterministic via `_RNG = _random.Random(42)`
-5. **`_dump_parity_arrays()`** — writes Phase 6 parity-verification artefacts (OOF arrays, behaviour signatures, calibration/ROC/PR curves, cell risk, group importance) to a directory. Only called when `--dump-parity-arrays` flag is passed; no-op otherwise
-6. **`export_artefacts()`** — writes the three CSV outputs
-7. **`main()`** — the orchestrator (Bands A–H)
-8. **CLI argparser** (`_build_argparser`) — every `main()` parameter as a CLI flag; defaults resolve relative to `_REPO_ROOT`. Includes `--dump-parity-arrays DIR` (Phase 6 parity verification) and `--use-cache`/`--no-cache` toggle
-9. **`if __name__ == "__main__":`** — parses args, calls `main(...)`
+1. **Imports** (lines 11–43) — all the science/ML/plotting imports plus `from src import data_prep, grid as grid_mod, features, infrastructure, weather, models, visualisation`; `from src.config import FEATURES, GROUPS`; `from src.exports import export_artefacts`
+2. **`FEATURES` and `GROUPS`** — imported from [[config]] (`src/config.py`), not defined here. `FEATURES` is the 31-item feature list; `GROUPS` is the 9-group dict for the per-group importance plot.
+3. **Kawaii progress reporter** (lines 51–175) — sparkly emoji-themed step counter. 23 logical steps, each gets a sparkly header and a kaomoji-decorated completion line. Three constants (`_STEP_EMOJI`, `_TRAIL_EMOJI`, `_KAOMOJI`) and four banner functions (`_step_start`, `_step_end`, `_banner_start`, `_banner_end`). Personalised for Amanda. Deterministic via `_RNG = _random.Random(42)`
+4. **`_dump_parity_arrays()`** — writes Phase 6 parity-verification artefacts (OOF arrays, behaviour signatures, calibration/ROC/PR curves, cell risk, group importance) to a directory. Only called when `--dump-parity-arrays` flag is passed; no-op otherwise
+5. **`main()`** — the orchestrator (Bands A–H)
+6. **CLI argparser** (`_build_argparser`) — every `main()` parameter as a CLI flag; defaults resolve relative to `_REPO_ROOT`. Includes `--dump-parity-arrays DIR` (Phase 6 parity verification) and `--use-cache`/`--no-cache` toggle
+7. **`if __name__ == "__main__":`** — parses args, calls `main(...)`
 
 **Key functions:**
 
@@ -647,14 +647,6 @@ Lines 155–173. Prints the opening banner ("W I L D L I F E   C O L L I S I O N
 Lines 176–200. Prints the closing banner: total time, step count, and the three output directories. The Amanda-targeted "thank you for running" line is intentional. (See "What I'd worry about" — this is fine, but keep it in mind if you ever publish the script.)
 
 **Called by:** [[main]] line 458.
-
-#### `export_artefacts(model_df_clean, mean_importance, results_df, output_dir) -> None`
-
-Lines 203–225. Writes the three canonical CSV outputs into `output_dir`. Aggregates `results_df` into a per-model summary (mean ± std of AUC/precision/recall/F1/accuracy) before writing. The contract here is hash-byte-identical parity with the Phase 1 baseline (FLAG_017).
-
-**Self-doing or delegating:** does the work itself; no helpers.
-
-**Called by:** [[main]] line 439.
 
 #### `main(...) -> None`
 
@@ -699,18 +691,36 @@ The Python package. Listed in `pyproject.toml` as `packages = ["src"]`. After `p
 
 ### `src/config.py`
 
-34 lines. Constants only — per the docstring, "Functions live in the modules that consume these constants; this file is intentionally constants-only." Three exports:
+81 lines. Constants only — per the docstring, "Functions live in the modules that consume these constants; this file is intentionally constants-only." Six exports:
 
 - `NVR_COLUMN_RENAME: dict[str, str]` — maps NVR CSV column names ("Datum", "Viltslag", "Län", "Kommun", "Lat WGS84", "Long WGS84") to the lowercase Python-friendly names ("datetime", "species", "lan", "kommun", "lat", "lon") used downstream. Used in [[data_prep]] line 36.
 - `NVR_SOURCE_CRS = "EPSG:4326"` — WGS84 (longitude/latitude). What NVR coordinates are in.
 - `NVR_TARGET_CRS = "EPSG:3006"` — SWEREF99 TM, Sweden's projected coordinate system (in metres). What the rest of the pipeline works in.
 - `SPECIES_MAP: dict[str, str]` — Swedish species labels to English: `älg→moose`, `rådjur→roe_deer`, `vildsvin→wild_boar`, `dovhjort→fallow_deer`. Used in [[features]]'s `build_lagged_species`.
+- `FEATURES: list[str]` — the 31 model feature names in canonical order matching the Phase 1 baseline. Single source of truth; imported by [[train_final_model]] and [[test]]. Includes `speedlimit_max` as the 31st feature.
+- `GROUPS: dict[str, list[str]]` — maps 9 group names to their constituent features for the per-group importance plot. Note: `speedlimit_max` is in `FEATURES` but deliberately absent from the `"speed"` group to preserve hash-equal parity with the Phase 1 baseline (adding it would change `group_importance.csv`). Deferred to post-Phase-9 baseline regeneration.
 
 **Why this file exists separately:** Module-level constants that more than one module wants. Avoids circular imports by giving them a leaf module to live in.
 
-**What if I deleted it:** `from src.config import NVR_COLUMN_RENAME` in [[data_prep]] and `from src.config import SPECIES_MAP` in [[features]] both crash.
+**What if I deleted it:** `from src.config import NVR_COLUMN_RENAME` in [[data_prep]], `from src.config import SPECIES_MAP` in [[features]], and `from src.config import FEATURES, GROUPS` in [[train_final_model]] and [[test]] all crash.
 
 **Tag:** `#file/source` `#file/config` `#language/python`
+
+---
+
+### `src/exports.py`
+
+39 lines. Disk-export helpers. One public function.
+
+#### `export_artefacts(model_df_clean, mean_importance, results_df, output_dir) -> None`
+
+Lines 16–38. Writes the three canonical CSV outputs into `output_dir`: `model_df_clean.csv`, `feature_importance.csv`, `model_summary.csv`. Aggregates `results_df` into a per-model summary (mean ± std of AUC/precision/recall/F1/accuracy) before writing. The contract here is hash-byte-identical parity with the Phase 1 baseline (FLAG_017).
+
+**Self-doing or delegating:** does the work itself; no helpers.
+
+**Called by:** [[train_final_model]] Band H; [[test]] cell 24.
+
+**Tag:** `#file/source` `#language/python`
 
 ---
 
@@ -729,7 +739,7 @@ Lines 27–56. Loads one yearly NVR CSV and returns a GeoDataFrame projected to 
 **Uses:** `pd.read_csv`, `pd.to_numeric`, `pd.to_datetime`, `gpd.points_from_xy`, `gpd.GeoDataFrame.to_crs`, plus the constants from [[config]].
 **Self-doing or delegating:** Does the work itself.
 
-**Called by:** [[load_collision_data_multi_year]] (the only caller), and [[test]] cell 1.
+**Called by:** [[load_collision_data_multi_year]] (the only caller).
 
 #### `load_collision_data_multi_year(directory, year_range=None) -> gpd.GeoDataFrame`
 
@@ -761,7 +771,7 @@ Lines 21–60. Per-cell-month lagged light-condition shares (cell 7 of [[test]])
 **Uses:** `np.select` for the classification, `groupby + size + unstack` for the per-cell-month counts, `groupby.shift` for the lag.
 **Self-doing or delegating:** does the work itself.
 
-**Called by:** [[train_final_model]] line 263, [[test]] cell 11.
+**Called by:** [[train_final_model]] line 263, [[test]] cell 7.
 
 #### `add_cyclical_month(df) -> pd.DataFrame`
 
@@ -781,7 +791,7 @@ Lines 76–107. Per-cell-month lagged collision counts for the four focal specie
 **Takes:** `joined: gpd.GeoDataFrame`.
 **Returns:** DataFrame with `cell_id, period_start, moose_lag1, roe_deer_lag1, wild_boar_lag1, fallow_deer_lag1`.
 **Uses:** `SPECIES_MAP`, `groupby + size + unstack`, `groupby.shift`.
-**Called by:** [[train_final_model]] line 267, [[test]] cell 11.
+**Called by:** [[train_final_model]] line 267, [[test]] cell 8.
 
 #### `HUNTING_PERIODS` and `RUT_PERIODS`
 
@@ -1077,27 +1087,9 @@ Lines 140–163. Fits the final model on all data. Two outputs: the plain `Rando
 
 ---
 
-### `src/roads.py`
+### ~~`src/roads.py`~~ — DELETED 2026-04-30
 
-29 lines. **Compatibility shim.** Just re-exports five functions from [[infrastructure]]:
-
-```python
-from src.infrastructure import (
-    build_road_features,
-    load_roads_for_study_area,
-    build_linear_features,
-    load_linear_layer_for_study_area,
-    build_speedlimit_features,
-)
-```
-
-The shim exists because [[test]] cell 0 still does `from roads import (...)`. The real module was renamed `roads.py` → `infrastructure.py` at Phase 4 step 2 (architectural decision AD-01) because the file handles roads, rail, fences, *and* speed limits. Renaming the import in the notebook would break the H8 hard constraint ("don't modify test.ipynb"); a shim is cleaner.
-
-**Disposition:** retire this shim only after the notebook is itself disposed of (Phase 8 / post-Phase-9).
-
-**What if I deleted it:** `from roads import ...` in [[test]] cell 0 crashes; the script orchestrator [[train_final_model]] is unaffected (it imports from `src.infrastructure` directly).
-
-**Tag:** `#file/source` `#role/helper` `#language/python`
+Was a 29-line compatibility shim re-exporting five functions from [[infrastructure]]. Existed because `test.ipynb` cell 0 originally did `from roads import (...)`. Deleted after the notebook refactor (notebook now imports directly from `infrastructure`). The script orchestrator [[train_final_model]] was already importing from `src.infrastructure` and is unaffected.
 
 ---
 
@@ -1145,7 +1137,7 @@ Lines 131–145. Precision–recall curve plus the average-precision scalar.
 
 #### `plot_feature_importance_by_group(mean_importance, groups_dict) -> tuple[Figure, pd.DataFrame]`
 
-Lines 148–168. Horizontal bar chart of summed feature importance per group. `groups_dict` is supplied by the orchestrator (`scripts/train_final_model.py::GROUPS`).
+Lines 148–168. Horizontal bar chart of summed feature importance per group. `groups_dict` is supplied by the caller; both [[train_final_model]] and [[test]] pass `GROUPS` imported from [[config]] (`src/config.py`).
 
 **Called by:** [[train_final_model]] line 429.
 
