@@ -55,8 +55,8 @@ def plot_top_features(
 
     fig, ax = plt.subplots()
     top.iloc[::-1].plot(kind="barh", ax=ax)  # reverse so the largest is on top
-    ax.set_xlabel("Mean importance")
-    ax.set_title(f"Top {top_n} features by mean importance")
+    ax.set_xlabel("Importance")
+    ax.set_title("Top Feature Importances (Random Forest)")
 
     data = top.rename("importance").reset_index().rename(columns={"index": "feature"})
     return fig, data
