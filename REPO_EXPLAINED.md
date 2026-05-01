@@ -1,7 +1,7 @@
 ---
 type: reference
 status: active
-last-updated: 2026-04-30
+last-updated: 2026-05-01
 source-repo: /Users/alexwagner/Kod/GitHub/thesis_workspace/code
 generated-by: repo-explainer
 tags: [reference, repo-explained, language/python, project/thesis_boogaloo]
@@ -33,7 +33,6 @@ tags: [reference, repo-explained, language/python, project/thesis_boogaloo]
 | `scripts/` | Entry-point scripts (`train_final_model.py`) | You | No — main entry |
 | `src/` | The Python package: 9 modules | You | No — the actual code |
 | `tests/` | pytest smoke tests (6 files) | You | No — guards regressions |
-| `Thesis 2_12.md` | Stray thesis prose dated 12 Feb (provenance unclear) | You | Probably yes — see "What I'd worry about" |
 | `thesis_boogaloo.egg-info/` | Setuptools editable-install metadata | `pip install -e .` | Yes — pip rebuilds |
 
 # How to read this document
@@ -54,7 +53,6 @@ code/
 ├── CLAUDE.md             ← Claude Code repo-scoped instructions
 ├── CLAUDE_versions/      ← Backup copies of CLAUDE.md
 ├── README.md             ← Front-page docs (partially stale)
-├── Thesis 2_12.md        ← Stray thesis prose, 20 KB
 ├── config/               ← hyperparameters.yaml
 ├── data/                 ← All input + intermediate data, ~3.4 GB
 ├── diagrams/             ← Static call-graph + tree dumps
@@ -1433,14 +1431,6 @@ The **Project Structure** ASCII tree it draws is *aspirational*, not actual.
 
 **Tag:** `#file/documentation` `#file/markdown`
 
-### `Thesis 2_12.md`
-
-20 KB. Markdown of an early thesis-prose draft, dated by filename to 12 February. According to the project bible, "provenance unclear, may belong in `notes/`" rather than inside the code repo. Contents are early Introduction and Method sections — these now live in `paper/01_Chapters/01_Introduction.tex` and `03_Method.tex` (which Amanda has since rewritten). Almost certainly unused as a working file.
-
-**What if I deleted it:** The thesis prose lives in the sibling `paper/` repo; this is a stale duplicate. Safe.
-
-**Tag:** `#file/documentation` `#file/markdown`
-
 ### `.gitignore`
 
 359 bytes. The Git-ignore rules. Ignores: `data/`, `__pycache__/`, `*.pyc`, `*.pyo`, `.Python`, `.ipynb_checkpoints/`, `venv/`, `.venv/`, `env/`, `ENV/`, `outputs/models/*.pkl`, `outputs/models/*.joblib`, `.vscode/`, `.idea/`, `*.swp`, `.DS_Store`, `Thumbs.db`, `.env`, `CLAUDE.md`. The last line is intentional — the project bible explains: *"`CLAUDE.md` files kept local (gitignored), not committed to either repo. Reason: avoid exposing Claude Code workflow to Amanda via Overleaf."*
@@ -1727,15 +1717,15 @@ Specific things in this codebase a careful reader would flag.
 
 3. **`diagrams/project_tree.txt` references `src/population.py`** which no longer exists. The file was deleted because the population-density data couldn't be obtained from Naturvårdsverket / Jägareförbundet / Viltdata. **Fix:** regenerate the tree or delete the file.
 
-4. **`Thesis 2_12.md` (20 KB) at the code repo root.** Per the project bible: "provenance unclear, may belong in `notes/`." Almost certainly leftover thesis prose that's now in the sibling `paper/` repo. **Fix:** move to `notes/` or delete.
+4. **`notebooks/sample.ipynb` (266 KB) embeds Amanda's Windows path.** Cell 24: `model_df_clean.to_csv("C:/Users/Amanda/PycharmProjects/thesis_boogaloo/data/processed/model_df_clean_2025.csv", ...)`. Unrunnable on this machine. Per the project bible, disposition is deferred to Phase 8 — but it's a candidate for deletion now.
 
-5. **`notebooks/sample.ipynb` (266 KB) embeds Amanda's Windows path.** Cell 24: `model_df_clean.to_csv("C:/Users/Amanda/PycharmProjects/thesis_boogaloo/data/processed/model_df_clean_2025.csv", ...)`. Unrunnable on this machine. Per the project bible, disposition is deferred to Phase 8 — but it's a candidate for deletion now.
+5. ~~**`notebooks/test2.ipynb`**~~ — **DELETED 2026-04-30 (Phase 8).**
 
-6. ~~**`notebooks/test2.ipynb`**~~ — **DELETED 2026-04-30 (Phase 8).**
+6. ~~**Empty placeholder notebooks** (`01_data_cleaning.ipynb`, `01b_merge_infra_population.ipynb`, `03_model_training.ipynb`, `04_evaluation_and_figures.ipynb`, `04_results_visualisation.ipynb`, `kms.ipynb`)~~ — **DELETED 2026-04-30 (Phase 8).**
 
-7. ~~**Empty placeholder notebooks** (`01_data_cleaning.ipynb`, `01b_merge_infra_population.ipynb`, `03_model_training.ipynb`, `04_evaluation_and_figures.ipynb`, `04_results_visualisation.ipynb`, `kms.ipynb`)~~ — **DELETED 2026-04-30 (Phase 8).**
+7. ~~**`notebooks/test.ipynb.pre-cell25-removal.bak`**~~ — **DELETED 2026-04-30 (Phase 8).**
 
-8. ~~**`notebooks/test.ipynb.pre-cell25-removal.bak`**~~ — **DELETED 2026-04-30 (Phase 8).**
+8. ~~**`Thesis 2_12.md`**~~ — **DELETED 2026-05-01.** Stale thesis-prose draft, superseded by `paper/` repo.
 
 9. **`thesis_boogaloo.egg-info/SOURCES.txt` is missing `grid.py`, `infrastructure.py`, `roads.py`** — files that exist now but didn't when the egg-info was last regenerated (28 April). Self-fixes on the next `pip install -e .`.
 
