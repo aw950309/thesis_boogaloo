@@ -1,83 +1,111 @@
+"""Feature engineering — WVC pipeline.
+
+Live exports:
+    HUNTING_PERIODS, RUT_PERIODS  (constants)
+    month_overlap_fraction        (helper)
+    build_hunting_features        (cell 12)
+    build_rut_features            (cell 12)
+    build_lagged_light            (cell 7  — Phase 5 row 5)
+    build_lagged_species          (cell 8  — Phase 5 row 6)
+    add_cyclical_month            (cell 12 — Phase 5 row 10)
+"""
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
+import geopandas as gpd
+
+from src.config import SPECIES_MAP
 
 
-def create_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
+def build_lagged_light(joined: gpd.GeoDataFrame) -> pd.DataFrame:
+    """Per-cell-month lagged light-condition shares (cell 7).
+
+    Time-of-day classification: 5–7 = dawn, 8–16 = day, 17–20 = dusk,
+    else night. Per (cell_id, period_start) the function computes the
+    share of each light condition, then lags one month per cell.
+    Returns columns: cell_id, period_start, dawn_lag1, day_lag1,
+    dusk_lag1, night_lag1.
     """
-    Creates time-based features:
-    - hour, month, dayofweek
-    - seasonal encoding
-    - cyclic hour encoding (important for ML models)
-    """
-
-    df = df.copy()
-    df["datetime"] = pd.to_datetime(df["datetime"], errors="coerce")
-
-    df = df.dropna(subset=["datetime"])
-
-    # basic time features
+    df = joined[["cell_id", "datetime"]].copy()
+    df["cell_id"] = df["cell_id"].astype(int)
+    df["period_start"] = df["datetime"].dt.to_period("M").dt.to_timestamp()
     df["hour"] = df["datetime"].dt.hour
-    df["month"] = df["datetime"].dt.month
-    df["dayofweek"] = df["datetime"].dt.dayofweek
 
-    # seasons
-    df["season"] = df["month"] % 12 // 3
+    conditions = [
+        df["hour"].between(5, 7),
+        df["hour"].between(8, 16),
+        df["hour"].between(17, 20),
+    ]
+    df["light_condition"] = np.select(conditions, ["dawn", "day", "dusk"], default="night")
 
-    # cyclic encoding
-    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
-    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
+    light_counts = (
+        df.groupby(["cell_id", "period_start", "light_condition"])
+        .size()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
 
+    light_cols = [c for c in light_counts.columns if c not in ["cell_id", "period_start"]]
+    row_sums = light_counts[light_cols].sum(axis=1)
+    light_counts[light_cols] = light_counts[light_cols].div(
+        row_sums.where(row_sums > 0, 1), axis=0
+    )
+
+    light_counts = light_counts.sort_values(["cell_id", "period_start"])
+    for col in light_cols:
+        light_counts[f"{col}_lag1"] = light_counts.groupby("cell_id")[col].shift(1)
+
+    lag_cols = [f"{c}_lag1" for c in light_cols]
+    return light_counts[["cell_id", "period_start"] + lag_cols].fillna(0)
+
+
+def add_cyclical_month(df: pd.DataFrame) -> pd.DataFrame:
+    """Append `month`, `month_sin`, `month_cos` columns derived from `period_start`.
+
+    Mutates and returns the same dataframe (in place; matches cell 12 of
+    test.ipynb). Cyclical encoding maps month 1..12 onto the unit circle
+    so January is adjacent to December.
+    """
+    df["month"] = df["period_start"].dt.month
+    df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
+    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
     return df
 
 
-def create_species_features(df: pd.DataFrame) -> pd.DataFrame:
+def build_lagged_species(joined: gpd.GeoDataFrame) -> pd.DataFrame:
+    """Per-cell-month lagged collision counts for the four focal species (cell 8).
+
+    Filters to moose, roe_deer, wild_boar, fallow_deer (Swedish labels
+    translated via SPECIES_MAP), pivots to per-species counts, and lags
+    one month per cell. Returns columns: cell_id, period_start,
+    {species}_lag1 for each focal species.
     """
-    Adds species-specific ecological features row by row.
-    Assumes df contains a column named 'species'.
-    """
+    relevant = ["moose", "roe_deer", "wild_boar", "fallow_deer"]
 
-    df = df.copy()
+    df = joined[["cell_id", "datetime", "species"]].copy()
+    df["cell_id"] = df["cell_id"].astype(int)
+    df["period_start"] = df["datetime"].dt.to_period("M").dt.to_timestamp()
+    df["species"] = (
+        df["species"].astype(str).str.strip().str.lower().replace(SPECIES_MAP)
+    )
+    df = df[df["species"].isin(relevant)]
 
-    if "species" not in df.columns:
-        raise ValueError("DataFrame must contain a 'species' column")
+    species_counts = (
+        df.groupby(["cell_id", "period_start", "species"])
+        .size()
+        .unstack(fill_value=0)
+        .reset_index()
+        .sort_values(["cell_id", "period_start"])
+    )
 
+    species_cols = [c for c in species_counts.columns if c not in ["cell_id", "period_start"]]
+    for col in species_cols:
+        species_counts[f"{col}_lag1"] = species_counts.groupby("cell_id")[col].shift(1)
 
-    s = df["species"].astype(str).str.strip().str.lower()
+    lag_cols = [f"{c}_lag1" for c in species_cols]
+    return species_counts[["cell_id", "period_start"] + lag_cols].fillna(0)
 
-
-    df["is_rutting_season"] = 0
-
-    # Lol dessa behöver vi dubbelkolla lite ai varning
-
-    # Moose (älg): Sept–Oct
-    df.loc[(s.isin(["moose", "älg"])) & (df["month"].isin([9, 10])), "is_rutting_season"] = 1
-
-    # Roe deer (rådjur): July–Aug
-    df.loc[(s.isin(["roe deer", "rådjur"])) & (df["month"].isin([7, 8])), "is_rutting_season"] = 1
-
-    # Wild boar (vildsvin): higher winter activity proxy
-    df.loc[(s.isin(["wild boar", "vildsvin"])) & (df["month"].isin([11, 12, 1, 2])), "is_rutting_season"] = 1
-
-    # Fallow deer (dovhjort): Oct–Nov
-    df.loc[(s.isin(["fallow deer", "dovhjort"])) & (df["month"].isin([10, 11])), "is_rutting_season"] = 1
-
-    return df
-
-
-
-def encode_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Encodes categorical variables into ML-ready format.
-    """
-
-    df = df.copy()
-
-
-    for col in ["species", "Län", "Kommun"]:
-        if col in df.columns:
-            df = pd.get_dummies(df, columns=[col], drop_first=True)
-
-    return df
 
 HUNTING_PERIODS = {
     # Länsstyrelsen Stockholm: älgskötsel/licensområde
@@ -192,15 +220,3 @@ def build_rut_features(df):
 
     return df
 
-def build_all_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Full feature pipeline:
-    1. temporal features
-    2. species behaviour
-    3. encoding
-    """
-    df = create_temporal_features(df)
-    df = create_species_features(df)
-    df = encode_features(df)
-
-    return df

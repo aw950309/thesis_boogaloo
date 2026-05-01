@@ -1,39 +1,622 @@
+from __future__ import annotations
+
+import re
+import numpy as np
 import pandas as pd
+import geopandas as gpd
 
-def load_infrastructure_data(filepath: str) -> pd.DataFrame:
-    """Loads the raw infrastructure data."""
-    return pd.read_csv(filepath)
 
-def process_infrastructure(df_infra: pd.DataFrame) -> pd.DataFrame:
-    #BOILERPLATE AMANDA VAR FÖRSIKTIG.
+def validate_projected_crs(gdf: gpd.GeoDataFrame, name: str = "GeoDataFrame") -> None:
+    if gdf.crs is None:
+        raise ValueError(f"{name} must have a CRS")
+
+    if getattr(gdf.crs, "is_geographic", False):
+        raise ValueError(
+            f"{name} must use a projected CRS, not geographic coordinates. "
+            f"Use EPSG:3006 for Sweden."
+        )
+
+
+def require_columns(df: pd.DataFrame, required: list[str], name: str = "DataFrame") -> None:
+    missing = [col for col in required if col not in df.columns]
+    if missing:
+        raise ValueError(f"{name} is missing required columns: {missing}")
+
+
+def make_safe_column_name(value: str) -> str:
+    value = str(value).strip().lower()
+    value = re.sub(r"\s+", "_", value)
+    value = re.sub(r"[^a-zA-Z0-9_åäöÅÄÖ]", "", value)
+    return value
+
+
+def load_linear_layer(
+    path: str,
+    bbox=None,
+    rows=None,
+    layer: str | None = None,
+) -> gpd.GeoDataFrame:
+    gdf = gpd.read_file(path, bbox=bbox, rows=rows, layer=layer)
+
+    if gdf.empty:
+        raise ValueError(f"Loaded layer is empty: {path}")
+
+    if gdf.crs is None:
+        raise ValueError(f"Layer has no CRS: {path}")
+
+    return gdf
+
+
+def clean_linear_layer(
+    gdf: gpd.GeoDataFrame,
+    target_crs: str = "EPSG:3006",
+) -> gpd.GeoDataFrame:
+
+    if str(gdf.crs) != target_crs:
+        gdf = gdf.to_crs(target_crs)
+
+    gdf = gdf[gdf.geometry.notna()].copy()
+    gdf = gdf[gdf.geometry.type.isin(["LineString", "MultiLineString"])].copy()
+
+    if gdf.empty:
+        raise ValueError("No valid line geometries found in layer")
+
+    return gdf.reset_index(drop=True)
+
+
+def load_linear_layer_for_study_area(
+    path: str,
+    gdf_points: gpd.GeoDataFrame,
+    target_crs: str = "EPSG:3006",
+    buffer_m: float = 0,
+    layer: str | None = None,
+) -> gpd.GeoDataFrame:
+    if gdf_points.crs is None:
+        raise ValueError("gdf_points must have a CRS")
+
+    points = gdf_points.to_crs(target_crs).copy()
+    minx, miny, maxx, maxy = points.total_bounds
+
+    bbox = (
+        minx - buffer_m,
+        miny - buffer_m,
+        maxx + buffer_m,
+        maxy + buffer_m,
+    )
+
+    gdf = load_linear_layer(path=path, bbox=bbox, layer=layer)
+    gdf = clean_linear_layer(gdf, target_crs=target_crs)
+
+    return gdf
+
+
+def load_roads(path: str, bbox=None, rows=None) -> gpd.GeoDataFrame:
+    roads = gpd.read_file(path, bbox=bbox, rows=rows)
+
+    if roads.empty:
+        raise ValueError("Loaded roads dataset is empty")
+
+    if roads.crs is None:
+        raise ValueError("Road dataset has no CRS")
+
+    return roads
+
+
+def clean_roads(
+    roads: gpd.GeoDataFrame,
+    target_crs: str = "EPSG:3006",
+    road_class_col: str = "Nattyp",
+    exclude_classes: list[str] | None = None,
+    keep_only_classes: list[str] | None = None,
+) -> gpd.GeoDataFrame:
+    if str(roads.crs) != target_crs:
+        roads = roads.to_crs(target_crs)
+
+    roads = roads[roads.geometry.notna()].copy()
+    roads = roads[roads.geometry.type.isin(["LineString", "MultiLineString"])].copy()
+
+    if roads.empty:
+        raise ValueError("No valid line geometries found in roads dataset")
+
+    if road_class_col in roads.columns:
+        roads[road_class_col] = (
+            roads[road_class_col]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+        if keep_only_classes is not None:
+            keep_only_classes = [str(x).strip().lower() for x in keep_only_classes]
+            roads = roads[roads[road_class_col].isin(keep_only_classes)].copy()
+
+        if exclude_classes is not None:
+            exclude_classes = [str(x).strip().lower() for x in exclude_classes]
+            roads = roads[~roads[road_class_col].isin(exclude_classes)].copy()
+
+    roads = roads.reset_index(drop=True)
+
+    if roads.empty:
+        raise ValueError("All roads were filtered out during cleaning")
+
+    return roads
+
+
+def inspect_road_classes(
+    roads: gpd.GeoDataFrame,
+    road_class_col: str = "Nattyp",
+    top_n: int = 30
+) -> pd.Series:
+    require_columns(roads, [road_class_col], "roads")
+
+    return (
+        roads[road_class_col]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .value_counts(dropna=False)
+        .head(top_n)
+    )
+
+
+def compute_segments_by_cell(
+    grid: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
+) -> gpd.GeoDataFrame:
+    require_columns(grid, ["cell_id"], "grid")
+    validate_projected_crs(grid, "grid")
+    validate_projected_crs(lines, "lines")
+
+    if grid.crs != lines.crs:
+        lines = lines.to_crs(grid.crs)
+
+    segments = gpd.overlay(
+        lines,
+        grid[["cell_id", "geometry"]],
+        how="intersection"
+    )
+
+    if segments.empty:
+        return gpd.GeoDataFrame(
+            {"cell_id": [], "segment_length_m": []},
+            geometry=[],
+            crs=grid.crs
+        )
+
+    segments["segment_length_m"] = segments.geometry.length
+    return segments
+
+
+def add_basic_line_exposure(
+    grid: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
+    length_col_name: str = "line_length_m",
+    density_col_name: str = "line_density",
+) -> gpd.GeoDataFrame:
+    segments = compute_segments_by_cell(grid, lines)
+
+    if segments.empty:
+        out = grid.copy()
+        out[length_col_name] = 0.0
+        out["cell_area_m2"] = out.geometry.area
+        out[density_col_name] = 0.0
+        return out
+
+    exposure = (
+        segments.groupby("cell_id", as_index=False)["segment_length_m"]
+        .sum()
+        .rename(columns={"segment_length_m": length_col_name})
+    )
+
+    out = grid.merge(exposure, on="cell_id", how="left").copy()
+    out[length_col_name] = out[length_col_name].fillna(0)
+
+    out["cell_area_m2"] = out.geometry.area
+    out[density_col_name] = np.where(
+        out["cell_area_m2"] > 0,
+        out[length_col_name] / out["cell_area_m2"],
+        0
+    )
+
+    return out
+
+
+def add_nearest_line_distance(
+    grid: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
+    distance_col_name: str = "nearest_line_distance_m",
+) -> gpd.GeoDataFrame:
+    validate_projected_crs(grid, "grid")
+    validate_projected_crs(lines, "lines")
+
+    if grid.crs != lines.crs:
+        lines = lines.to_crs(grid.crs)
+
+    centroids = gpd.GeoDataFrame(
+        grid[["cell_id"]].copy(),
+        geometry=grid.geometry.centroid,
+        crs=grid.crs
+    )
+
+    nearest = gpd.sjoin_nearest(
+        centroids,
+        lines[["geometry"]],
+        how="left",
+        distance_col=distance_col_name
+    )
+
+    out = grid.merge(
+        nearest[["cell_id", distance_col_name]],
+        on="cell_id",
+        how="left"
+    ).copy()
+
+    out[distance_col_name] = out[distance_col_name].fillna(np.inf)
+    return out
+
+
+def build_linear_features(
+    grid: gpd.GeoDataFrame,
+    lines: gpd.GeoDataFrame,
+    prefix: str,
+) -> gpd.GeoDataFrame:
+
+    require_columns(grid, ["cell_id"], "grid")
+    validate_projected_crs(grid, "grid")
+    validate_projected_crs(lines, "lines")
+
+    if grid.crs != lines.crs:
+        lines = lines.to_crs(grid.crs)
+
+    length_col = f"{prefix}_length_m"
+    density_col = f"{prefix}_density"
+    distance_col = f"nearest_{prefix}_distance_m"
+
+    out = add_basic_line_exposure(
+        grid=grid,
+        lines=lines,
+        length_col_name=length_col,
+        density_col_name=density_col,
+    )
+
+    out = add_nearest_line_distance(
+        grid=out,
+        lines=lines,
+        distance_col_name=distance_col,
+    )
+
+    return out
+
+
+def add_road_class_exposure(
+    grid: gpd.GeoDataFrame,
+    roads: gpd.GeoDataFrame,
+    road_class_col: str = "Nattyp",
+    selected_classes: list[str] | None = None,
+    prefix: str = "road_class",
+) -> gpd.GeoDataFrame:
+    require_columns(roads, [road_class_col], "roads")
+
+    segments = compute_segments_by_cell(grid, roads)
+
+    if segments.empty:
+        return grid.copy()
+
+    segments[road_class_col] = (
+        segments[road_class_col]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    if selected_classes is not None:
+        selected_classes = [str(x).strip().lower() for x in selected_classes]
+        segments = segments[segments[road_class_col].isin(selected_classes)].copy()
+
+    if segments.empty:
+        return grid.copy()
+
+    class_lengths = (
+        segments.groupby(["cell_id", road_class_col])["segment_length_m"]
+        .sum()
+        .unstack(fill_value=0)
+        .reset_index()
+    )
+
+    rename_map = {}
+    for col in class_lengths.columns:
+        if col == "cell_id":
+            continue
+        safe = make_safe_column_name(col)
+        rename_map[col] = f"{prefix}_{safe}_length_m"
+
+    class_lengths = class_lengths.rename(columns=rename_map)
+
+    out = grid.merge(class_lengths, on="cell_id", how="left").copy()
+
+    class_cols = [
+        c for c in out.columns
+        if c.startswith(f"{prefix}_") and c.endswith("_length_m")
+    ]
+    for col in class_cols:
+        out[col] = out[col].fillna(0)
+
+    return out
+
+
+
+def build_road_features(
+    grid: gpd.GeoDataFrame,
+    roads: gpd.GeoDataFrame,
+    road_class_col: str = "Nattyp",
+    exclude_classes: list[str] | None = None,
+    keep_only_classes: list[str] | None = None,
+    include_class_lengths: bool = True,
+    selected_classes: list[str] | None = None,
+) -> gpd.GeoDataFrame:
+    require_columns(grid, ["cell_id"], "grid")
+    validate_projected_crs(grid, "grid")
+
+    roads = clean_roads(
+        roads=roads,
+        target_crs=str(grid.crs),
+        road_class_col=road_class_col,
+        exclude_classes=exclude_classes,
+        keep_only_classes=keep_only_classes,
+    )
+
+    out = build_linear_features(
+        grid=grid,
+        lines=roads,
+        prefix="road",
+    )
+
+    if include_class_lengths and road_class_col in roads.columns:
+        class_df = add_road_class_exposure(
+            grid=grid,
+            roads=roads,
+            road_class_col=road_class_col,
+            selected_classes=selected_classes,
+            prefix="road_class",
+        )
+
+        class_cols = [
+            c for c in class_df.columns
+            if c.startswith("road_class_") and c.endswith("_length_m")
+        ]
+
+        if class_cols:
+            out = out.merge(class_df[["cell_id"] + class_cols], on="cell_id", how="left")
+            for col in class_cols:
+                out[col] = out[col].fillna(0)
+
+    return out
+
+
+def load_roads_for_study_area(
+    path: str,
+    gdf_points: gpd.GeoDataFrame,
+    target_crs: str = "EPSG:3006",
+    buffer_m: float = 0,
+) -> gpd.GeoDataFrame:
+    if gdf_points.crs is None:
+        raise ValueError("gdf_points must have a CRS")
+
+    points = gdf_points.to_crs(target_crs).copy()
+    minx, miny, maxx, maxy = points.total_bounds
+
+    bbox = (
+        minx - buffer_m,
+        miny - buffer_m,
+        maxx + buffer_m,
+        maxy + buffer_m,
+    )
+
+    roads = load_roads(path=path, bbox=bbox)
+    roads = clean_roads(roads, target_crs=target_crs)
+
+    return roads
+
+def build_speedlimit_features(grid, speedlimit_gdf, speed_col="HTHAST"):
+    sl = speedlimit_gdf.copy()
+    sl = sl.dropna(subset=[speed_col, "geometry"])
+    sl[speed_col] = pd.to_numeric(sl[speed_col], errors="coerce")
+    sl = sl.dropna(subset=[speed_col])
+
+    if sl.crs != grid.crs:
+        sl = sl.to_crs(grid.crs)
+
+    sl = sl[[speed_col, "geometry"]].reset_index(drop=True)
+
+    # Step 1: spatial join to find which segments touch which cells
+    joined = gpd.sjoin(
+        sl,
+        grid[["cell_id", "geometry"]],
+        how="inner",
+        predicate="intersects",
+    )
+
+    # Step 2: clip each matched segment to its cell polygon
+    cell_lookup = grid.set_index("cell_id")["geometry"]
+
+    def clip_row(row):
+        cell_geom = cell_lookup.loc[row["cell_id"]]
+        return row.geometry.intersection(cell_geom)
+
+    joined = joined.copy()
+    joined["geometry"] = joined.apply(clip_row, axis=1)
+    joined = joined[~joined["geometry"].is_empty]
+    joined["segment_length_m"] = joined.geometry.length
+
+    if joined.empty:
+        out = grid[["cell_id", "geometry"]].copy()
+        for col in ["speedlimit_mean_weighted", "speedlimit_max", "speedlimit_min",
+                    "speedlimit_90plus_share", "speedlimit_segment_length_m"]:
+            out[col] = 0.0
+        return out
+
+    joined["weighted_speed"]      = joined[speed_col] * joined["segment_length_m"]
+    joined["is_90plus"]           = (joined[speed_col] >= 90).astype(int)
+    joined["highspeed_length_m"]  = joined["segment_length_m"] * joined["is_90plus"]
+
+    agg = (
+        joined.groupby("cell_id")
+        .agg(
+            speedlimit_segment_length_m=("segment_length_m", "sum"),
+            speedlimit_weighted_sum=("weighted_speed", "sum"),
+            speedlimit_max=(speed_col, "max"),
+            speedlimit_min=(speed_col, "min"),
+            speedlimit_highspeed_length_m=("highspeed_length_m", "sum"),
+        )
+        .reset_index()
+    )
+
+    agg["speedlimit_mean_weighted"] = (
+        agg["speedlimit_weighted_sum"] / agg["speedlimit_segment_length_m"]
+    )
+    agg["speedlimit_90plus_share"] = np.where(
+        agg["speedlimit_segment_length_m"] > 0,
+        agg["speedlimit_highspeed_length_m"] / agg["speedlimit_segment_length_m"],
+        0,
+    )
+
+    agg = agg[[
+        "cell_id", "speedlimit_mean_weighted", "speedlimit_max",
+        "speedlimit_min", "speedlimit_90plus_share", "speedlimit_segment_length_m",
+    ]]
+
+    out = grid[["cell_id", "geometry"]].merge(agg, on="cell_id", how="left")
+    for col in ["speedlimit_mean_weighted", "speedlimit_max", "speedlimit_min",
+                "speedlimit_90plus_share", "speedlimit_segment_length_m"]:
+        out[col] = out[col].fillna(0)
+
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 5 Row 7 — orchestrator wrapping cell 9's USE_CACHE pattern.
+# ─────────────────────────────────────────────────────────────────────────────
+
+from pathlib import Path
+from typing import NamedTuple
+
+
+class InfrastructurePaths(NamedTuple):
+    """Bundle of GeoPackage paths for the four infrastructure layers.
+
+    NamedTuple is permitted under the project's no-classes rule because at
+    runtime it is a tuple, not a behaviour-bearing class.
     """
-    Cleans and selects relevant infrastructure features.
-    Target variables: Speed limits, Presence of wildlife fencing.
-    """
-    # Adjust these column names to match your actual dataset
-    cols_to_keep = ['road_id', 'speed_limit', 'has_wildlife_fencing']
+    roads: Path
+    rail: Path
+    fences: Path
+    speedlimit: Path
 
-    # Filter only the relevant columns for predicting collision risk
-    existing_cols = [col for col in cols_to_keep if col in df_infra.columns]
-    df_processed = df_infra[existing_cols].copy()
 
-    # Handle missing values for fencing (assuming missing means no fence)
-    if 'has_wildlife_fencing' in df_processed.columns:
-        df_processed['has_wildlife_fencing'] = df_processed['has_wildlife_fencing'].fillna(0).astype(int)
+def build_infrastructure_features(
+    grid: gpd.GeoDataFrame,
+    gdf_points: gpd.GeoDataFrame,
+    paths: InfrastructurePaths,
+    cache_dir: Path,
+    use_cache: bool = True,
+) -> dict[str, pd.DataFrame]:
+    """Load-or-compute the four infrastructure feature dataframes (cell 9).
 
-    return df_processed
+    Each feature df is cached to parquet under ``cache_dir`` using the
+    legacy filenames (`road_features.parquet`, `rail_features.parquet`,
+    `fence_features.parquet`, `speedlimit_features.parquet`) to preserve
+    hash-equal parity with the Phase 1 baseline.
 
-def merge_infrastructure(df_collisions: pd.DataFrame, df_infra: pd.DataFrame, join_key: str = 'road_id') -> pd.DataFrame:
-    """
-    Merges infrastructure data (speed limits, fencing) into the main collision dataset.
-    """
-    return pd.merge(df_collisions, df_infra, on=join_key, how='left')
+    Returns a dict with keys ``roads``, ``rail``, ``fences``, ``speedlimit``;
+    each value is the corresponding feature dataframe (parquet-equivalent
+    columns; no `geometry`; no proximity flags — those are orchestrator-side
+    per cell-9 ordering: distance is first NaN-filled with 0 by the
+    orchestrator before the proximity flag is computed, which matches the
+    notebook's behaviour exactly).
 
-def run_infrastructure_pipeline(filepath: str, df_collisions: pd.DataFrame, join_key: str = 'road_id') -> pd.DataFrame:
+    Note: the architecture_map.md §3.6 signature reads ``-> pd.DataFrame``;
+    this function returns ``dict[str, pd.DataFrame]`` instead so the four
+    parquet caches stay byte-identical to the baseline. The orchestrator
+    does the per-feature merge + fillna + proximity flag; that is the
+    natural mapping of cell 9 onto the modular code.
     """
-    Orchestrates the infrastructure data pipeline:
-    1. Loads the raw infrastructure data from the given filepath
-    2. Processes and cleans the infrastructure features
-    3. Merges the cleaned infrastructure data into the main collision dataset
-    """
-    pass
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # Roads
+    road_cache = cache_dir / "road_features.parquet"
+    if use_cache and road_cache.exists():
+        road_features = pd.read_parquet(road_cache, engine="fastparquet")
+    else:
+        roads = load_roads_for_study_area(
+            path=str(paths.roads),
+            gdf_points=gdf_points,
+            buffer_m=2000,
+        )
+        road_features = build_road_features(
+            grid=grid,
+            roads=roads,
+            keep_only_classes=["bilnät"],
+        )
+        if use_cache:
+            road_features.drop(columns="geometry").to_parquet(road_cache, engine="fastparquet")
+
+    # Railways
+    rail_cache = cache_dir / "rail_features.parquet"
+    if use_cache and rail_cache.exists():
+        rail_features = pd.read_parquet(rail_cache, engine="fastparquet")
+    else:
+        rails = load_linear_layer_for_study_area(
+            path=str(paths.rail),
+            gdf_points=gdf_points,
+            buffer_m=2000,
+        )
+        rail_features = build_linear_features(grid=grid, lines=rails, prefix="rail")
+        if use_cache:
+            rail_features.drop(
+                columns=["geometry", "cell_area_m2"], errors="ignore"
+            ).to_parquet(rail_cache, engine="fastparquet")
+
+    # Fences (carries a layer= argument)
+    fence_cache = cache_dir / "fence_features.parquet"
+    if use_cache and fence_cache.exists():
+        fence_features = pd.read_parquet(fence_cache, engine="fastparquet")
+    else:
+        fences = load_linear_layer_for_study_area(
+            path=str(paths.fences),
+            gdf_points=gdf_points,
+            buffer_m=2000,
+            layer="barriarer_kvarvarande_vag",
+        )
+        fence_features = build_linear_features(grid=grid, lines=fences, prefix="fence")
+        if use_cache:
+            fence_features.drop(
+                columns=["geometry", "cell_area_m2"], errors="ignore"
+            ).to_parquet(fence_cache, engine="fastparquet")
+
+    # Speedlimits
+    speed_cache = cache_dir / "speedlimit_features.parquet"
+    if use_cache and speed_cache.exists():
+        speedlimit_features = pd.read_parquet(speed_cache, engine="fastparquet")
+    else:
+        speedlimit = load_linear_layer_for_study_area(
+            path=str(paths.speedlimit),
+            gdf_points=gdf_points,
+            buffer_m=2000,
+        )
+        speedlimit_features = build_speedlimit_features(
+            grid=grid,
+            speedlimit_gdf=speedlimit,
+            speed_col="HTHAST",
+        )
+        if use_cache:
+            speedlimit_features.drop(columns="geometry").to_parquet(
+                speed_cache, engine="fastparquet"
+            )
+
+    return {
+        "roads": road_features,
+        "rail": rail_features,
+        "fences": fence_features,
+        "speedlimit": speedlimit_features,
+    }
