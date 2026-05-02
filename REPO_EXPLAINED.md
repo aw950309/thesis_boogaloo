@@ -1,13 +1,13 @@
 ---
 type: reference
 status: active
-last-updated: 2026-05-01
+last-updated: 2026-05-02
 source-repo: /Users/alexwagner/Kod/GitHub/thesis_workspace/code
 generated-by: repo-explainer
 tags: [reference, repo-explained, language/python, project/thesis_boogaloo]
 ---
 
-> A bachelor's thesis codebase that predicts wildlife-vehicle collision risk in Sweden. It reads twelve years of Swedish collision records (NVR), builds a 10×10 km grid over the country, joins each grid cell to roads, railways, fences and speed-limit segments, fetches matching SMHI weather (temperature + precipitation), engineers seasonal/hunting/rutting/light-condition features, and trains a Random Forest + Logistic Regression on the resulting cell-month panel to predict whether each cell is "high-risk" in a given month. The pipeline is fully modular: the canonical entry point is `scripts/train_final_model.py` (run via `.venv/bin/python scripts/train_final_model.py`). The notebook `notebooks/test.ipynb` is retained as a scratchpad but is no longer the orchestrator. The README at root predates the migration and is partially stale — trust this document and `notes/PROJECT_BIBLE.md` (workspace-level) over the README.
+> A bachelor's thesis codebase that predicts wildlife-vehicle collision risk in Sweden. It reads twelve years of Swedish collision records (NVR), builds a 10×10 km grid over the country, joins each grid cell to roads, railways, fences and speed-limit segments, fetches matching SMHI weather (temperature + precipitation), engineers seasonal/hunting/rutting/light-condition features, and trains a Random Forest + Logistic Regression on the resulting cell-month panel to predict whether each cell is "high-risk" in a given month. The pipeline is fully modular: the canonical entry point is `scripts/train_final_model.py` (run via `.venv/bin/python scripts/train_final_model.py`). Three notebooks exist: `notebooks/test.ipynb` (scratchpad, calls `src/` modules, pooled model), `notebooks/test_with_animals.ipynb` (same pooled pipeline + per-species analysis appended), and `notebooks/tetttt.ipynb` (Amanda's standalone per-species prototype in pre-modular style). The README at root predates the migration and is partially stale — trust this document and `notes/PROJECT_BIBLE.md` (workspace-level) over the README.
 
 # Quick reference
 
@@ -25,9 +25,9 @@ tags: [reference, repo-explained, language/python, project/thesis_boogaloo]
 | `config/` | YAML hyperparameters | You | No — pipeline reads it |
 | `data/` | Raw NVR/Trafikverket/SMHI inputs + processed outputs (~3.4 GB) | You / pipeline | Some yes, some no — see [[data]] |
 | `diagrams/` | Static call-graph + tree dumps | You (one-off) | Yes — regeneratable, but stale |
-| `notebooks/` | Jupyter notebooks — `test.ipynb` scratchpad + `sample.ipynb` (held for Amanda) | You | `test.ipynb` keep; `sample.ipynb` pending Amanda check |
+| `notebooks/` | Jupyter notebooks — `test.ipynb` (pooled scratchpad), `test_with_animals.ipynb` (pooled + per-species), `tetttt.ipynb` (Amanda's per-species prototype) | You | Keep all three |
 | `REPO_EXPLAINED.md` | This document — beginner-friendly walkthrough of every file and function | Claude Code | Yes — regeneratable |
-| `outputs/` | Trained models (.joblib, ~617 MB) + figure PNGs | The pipeline | Yes — pipeline regenerates |
+| `outputs/` | Trained models (.joblib, ~617 MB) + figure PNGs + per-species CSVs/PDFs | The pipeline / notebooks | Yes — regeneratable |
 | `pyproject.toml` | Package metadata + dependencies | You | No — defines the project |
 | `README.md` | Front-page docs (partially stale) | You | No — but rewrite recommended |
 | `scripts/` | Entry-point scripts (`train_final_model.py`) | You | No — main entry |
@@ -56,7 +56,7 @@ code/
 ├── config/               ← hyperparameters.yaml
 ├── data/                 ← All input + intermediate data, ~3.4 GB
 ├── diagrams/             ← Static call-graph + tree dumps
-├── notebooks/            ← Jupyter notebooks (test.ipynb scratchpad — calls src/ modules)
+├── notebooks/            ← Jupyter notebooks (test.ipynb, test_with_animals.ipynb, tetttt.ipynb)
 ├── outputs/              ← Pipeline's models/ and figures/
 ├── pyproject.toml        ← Package metadata + dependencies
 ├── scripts/              ← Entry-point scripts (train_final_model.py)
@@ -290,7 +290,7 @@ Subfolders, top-down:
 - `Sverige_Vägtrafiknät_GeoPackage/` — Trafikverket road network (Sverige = "Sweden", Vägtrafiknät = "road traffic network")
 - `Speedlimit/` — Trafikverket speed-limit segments (the ISA dataset)
 - `processed/` — pipeline outputs and parquet caches
-- `raw/` — small auxiliary CSVs (just `stations_fixad.csv` today)
+- `raw/` — small auxiliary CSVs (empty — `stations_fixad.csv` was deleted 2026-05-02; live pipeline uses `fetch_temperature_stations_from_api()` instead)
 
 **Tag:** `#folder/data`
 
@@ -421,9 +421,9 @@ Logistic Regression has high recall but low precision (catches almost all risk-p
 
 Written by [[train_final_model]] line 225.
 
-### `data/raw/stations_fixad.csv`
+### `data/raw/`
 
-107 KB. A list of SMHI weather stations. Header (Swedish): `Id;Namn;Ägare;Nät;Latitud;Longitud;Höjd (m);Från;Till;Aktiv;Mobil;Vattendrag;Vattendragsnr;Area (km²)`. The `fixad` ("fixed") in the filename suggests an earlier broken version was replaced. Currently *not* referenced by the live pipeline — `weather.py` fetches the station list directly from SMHI's API via `fetch_temperature_stations_from_api()` (see [[weather]]). The CSV is leftover from an earlier approach. Safe to keep; harmless.
+Empty as of 2026-05-02. `stations_fixad.csv` (a manually-curated SMHI station list) was deleted because the live pipeline fetches stations directly from SMHI's API via `weather.fetch_temperature_stations_from_api()`. The dead function `load_temperature_stations()` in `src/weather.py:26` still references the deleted file but is never called — cleanup deferred (H8 weather.py freeze).
 
 ---
 
@@ -457,51 +457,89 @@ Static analysis output. You ran code-graphing tools once on 31 March 2026 and co
 
 ## `notebooks/`
 
-Two notebooks remain. The seven empty/stale placeholder notebooks (`01_data_cleaning.ipynb`, `01b_merge_infra_population.ipynb`, `03_model_training.ipynb`, `04_evaluation_and_figures.ipynb`, `04_results_visualisation.ipynb`, `kms.ipynb`, `test2.ipynb`) and the `.bak` backup were deleted in Phase 8 (2026-04-30). Only `test.ipynb` (scratchpad) and `sample.ipynb` (held pending Amanda check) remain.
+Three notebooks. The seven empty/stale placeholder notebooks and the `.bak` backup were deleted 2026-04-30. `sample.ipynb` (Amanda's pre-migration scratchpad with hardcoded Windows paths) was deleted 2026-05-02. Three notebooks remain: `test.ipynb`, `test_with_animals.ipynb`, `tetttt.ipynb`.
 
 **Tag:** `#folder/notebooks`
 
-### `notebooks/sample.ipynb`
+### `notebooks/tetttt.ipynb`
 
-266 KB. 30 cells. An *earlier* working pipeline that has been superseded by [[test]]. Cell 24 hardcodes a Windows absolute path: `C:/Users/Amanda/PycharmProjects/thesis_boogaloo/data/processed/model_df_clean_2025.csv`. Imports use the `from roads import ...` style (the older module name; see [[roads]]). Currently unrunnable on this machine because of the Windows path — it would write outside the repo.
+Amanda's standalone per-species prototype. **Pre-modular style** — it does not call `src/` modules; it re-implements the pipeline inline (data loading, infrastructure loading, weather, lags) and adds per-species split logic on top. Named "tetttt" — a typo scratch filename that stuck.
 
-Per the project bible, disposition is deferred to Phase 8; the file is a candidate for deletion once the migration is fully done.
+**What it contains:**
+- Cells 1–8: inline pipeline (load collisions from hardcoded Windows path, build cell-month panel, EDA, `build_lagged_light` inline)
+- Cell 9: per-species config — `SPECIES_LIST`, `SPECIES_LABELS`, `BASE_FEATURES` (15 items, leaner than the pooled 31), `SPECIES_FEATURES` per-species lag/hunting/rut subsets
+- Cell 10: `build_species_cell_month_table()` — filters collisions to one species, rebuilds cell-month panel with per-species 75th-percentile threshold
+- Cells 11–13: inline `build_lagged_species_all`, inline infrastructure loading (roads/rail/fences/speedlimit), `build_species_model_df()` assembler
+- Cells 14–16: inline `make_expanding_time_splits`, inline `evaluate_time_splits` (returns both RF + LR OOF probs), per-species model loop writing CSVs to `data/processedtest/`
+- Cells 17–21: five per-species figure loops (feature importance, ROC, PR, calibration, risk maps); cell 22 is a duplicate of cell 17
+
+**Why it can't run on this machine:** hardcoded `C:/Users/Amanda/...` Windows data paths. The modular equivalent is `test_with_animals.ipynb`.
+
+**Empirical results (from Amanda's machine):** per-species AUC: roe deer 0.946, moose 0.887, wild boar 0.899–0.917, fallow deer 0.950–0.972. These validate Background §2.5 claims the pooled model could not.
+
+**What if I deleted it:** loses the original attribution record of Amanda's algorithmic contribution. Keep until T4 P6 ports the logic into `src/`.
 
 ### `notebooks/test.ipynb`
 
-The scratchpad. 25 cells. No longer the canonical orchestrator — `scripts/train_final_model.py` is production. Retained because Amanda uses it; do not delete or gitignore without her awareness. **Refactored 2026-04-30**: all pipeline cells now call `src/` modules directly (same functions as `train_final_model.py`). Parity-verified bit-identical to Phase 1 baseline after refactor.
+The pooled-model scratchpad. 26 cells. No longer the canonical orchestrator — `scripts/train_final_model.py` is production. Retained because Amanda uses it; do not delete or gitignore without her awareness. **Refactored 2026-04-30**: all pipeline cells call `src/` modules directly (same functions as `train_final_model.py`). Parity-verified bit-identical to Phase 1 baseline after refactor.
 
-EDA cells 3–6, 18, 23 remain inline (no `src/` equivalent; Amanda's exploratory cells). Cells 10–11 retain glue logic with a Swedish warning comment (`// Alex`) pointing to the mirror in `train_final_model.py`.
+EDA cells (3–6, 18, 23) remain inline. Cells 10–11 retain weather/lag merge glue with a Swedish warning comment pointing to the mirror in `train_final_model.py`.
 
-| Cell | Current content | Module called |
-|------|----------------|---------------|
-| 0 | Imports — `src/` modules + `FEATURES`, `GROUPS` from config | (orchestrator only) |
-| 1 | `load_collision_data_multi_year(...)` + `DATA_DIR` | [[data_prep]] |
-| 2 | `build_cell_month_panel(gdf, cell_size=10000)` | [[grid]] |
-| 3 | EDA — daylight × species (inline, not in `src/`) | (none) |
-| 4 | EDA — light-condition shares (inline) | (none) |
-| 5 | EDA — season classification (inline) | (none) |
-| 6 | EDA — paired barplot (inline) | (none) |
-| 7 | `build_lagged_light(joined)` | [[features]] |
-| 8 | `build_lagged_species(joined)` | [[features]] |
-| 9 | `InfrastructurePaths` + `build_infrastructure_features(...)` + merge + proximity flags | [[infrastructure]] |
-| 10 | Weather merge glue (⚠ mirror in `train_final_model.py` Band D) | [[weather]] |
-| 11 | Lag features merge glue (⚠ mirror in Band D) | (inline join) |
-| 12 | `add_cyclical_month` + `build_hunting_features` + `build_rut_features` + dropna | [[features]] |
-| 13 | `load_hyperparameters` + `make_expanding_time_splits` | [[models]] |
-| 14 | `evaluate_time_splits(...)` + summary print | [[models]] |
-| 15 | `plot_calibration(oof_probs, oof_labels)` | [[visualisation]] |
-| 16 | `fit_final_model(...)` | [[models]] |
-| 17 | `plot_top_features(mean_importance, top_n=15)` | [[visualisation]] |
-| 18 | EDA — speedlimit correlation matrix (inline) | (none) |
-| 19 | `plot_spatial_risk_maps(...)` + explicit `risk_prob` mutation | [[visualisation]] |
-| 20 | `plot_roc(oof_probs, oof_labels)` | [[visualisation]] |
-| 21 | `plot_precision_recall(oof_probs, oof_labels)` | [[visualisation]] |
-| 22 | `plot_feature_importance_by_group(mean_importance, GROUPS)` | [[visualisation]] |
-| 23 | EDA — precip vs risk boxplot (inline) | (none) |
-| 24 | `export_artefacts(model_df_clean, mean_importance, results_df, ...)` | [[exports]] |
+| Cell | Content | Module called |
+|------|---------|---------------|
+| 1 | Markdown welcome header for Amanda | — |
+| 2 | Imports — all `src/` modules + `FEATURES`, `GROUPS` from config | (orchestrator) |
+| 3 | `load_collision_data_multi_year(...)` | [[data_prep]] |
+| 4 | `build_cell_month_panel(gdf, cell_size=10000)` | [[grid]] |
+| 5 | EDA — daylight × species (inline) | — |
+| 6 | EDA — light-condition shares (inline) | — |
+| 7 | EDA — season classification (inline) | — |
+| 8 | EDA — paired barplot (inline) | — |
+| 9 | `build_lagged_light(joined)` | [[features]] |
+| 10 | `build_lagged_species(joined)` | [[features]] |
+| 11 | `InfrastructurePaths` + `build_infrastructure_features(...)` + merge + proximity flags | [[infrastructure]] |
+| 12 | Weather merge glue (⚠ mirror in `train_final_model.py` Band D) | [[weather]] |
+| 13 | Lag features merge glue (⚠ mirror in Band D) | (inline) |
+| 14 | `add_cyclical_month` + `build_hunting_features` + `build_rut_features` + dropna | [[features]] |
+| 15 | `load_hyperparameters` + `make_expanding_time_splits` | [[models]] |
+| 16 | `evaluate_time_splits(...)` + summary print | [[models]] |
+| 17 | `plot_calibration(oof_probs, oof_labels)` | [[visualisation]] |
+| 18 | `fit_final_model(...)` | [[models]] |
+| 19 | `plot_top_features(mean_importance, top_n=15)` | [[visualisation]] |
+| 20 | EDA — speedlimit correlation matrix (inline) | — |
+| 21 | `plot_spatial_risk_maps(...)` + `risk_prob` mutation | [[visualisation]] |
+| 22 | `plot_roc(oof_probs, oof_labels)` | [[visualisation]] |
+| 23 | `plot_precision_recall(oof_probs, oof_labels)` | [[visualisation]] |
+| 24 | `plot_feature_importance_by_group(mean_importance, GROUPS)` | [[visualisation]] |
+| 25 | EDA — precip vs risk boxplot (inline) | — |
+| 26 | `export_artefacts(model_df_clean, mean_importance, results_df, ...)` | [[exports]] |
 
-**What if I deleted it:** Amanda loses her working entry point. The pipeline still runs fine via `scripts/train_final_model.py`; the parity baseline in `notes/notes_code/parity_baseline/` is the migration's ground truth, not this notebook.
+**What if I deleted it:** Amanda loses her working entry point. Pipeline still runs via `scripts/train_final_model.py`.
+
+### `notebooks/test_with_animals.ipynb`
+
+The clean per-species notebook. **Cells 1–26 are a verbatim copy of `test.ipynb`** — the pooled pipeline runs first, unchanged. Cells 27–37 append Amanda's per-species logic adapted to the modular `src/` style. Created 2026-05-02 as an intermediate step before T4 P6 ports the logic into `src/` proper.
+
+**What is new vs `test.ipynb` (cells 27–37 only):**
+
+- **Cell 27** — markdown divider
+- **Cell 28** — per-species config (inline, moves to `src/config.py` in T4 P6):
+  - `SPECIES_LIST = ["roe_deer", "moose", "wild_boar", "fallow_deer"]`
+  - `SPECIES_LABELS` — display names for figures
+  - `BASE_FEATURES_SPECIES` — Amanda's lean 15-feature base (excludes `road_density`; open question vs pooled 31)
+  - `SPECIES_FEATURES` — per-species additions: own-species lag + hunting fraction + rut fraction
+- **Cell 29** — `build_species_cell_month_table(joined, grid, species_name)`: filters the already-computed `joined` dataframe to one species, rebuilds the cell-month panel using the global grid (preserving `cell_id` consistency), applies per-species 75th-percentile threshold. Returns a dataframe with per-species `risk` label.
+- **Cell 30** — `build_species_model_df(species_name, joined, grid, model_df)`: calls `build_species_cell_month_table`, then swaps the pooled `risk`/`collision_count` columns in `model_df` for the per-species ones via an inner merge. No re-loading of GeoPackages or weather — all expensive computation already done in the pooled section.
+- **Cell 31** — `evaluate_time_splits_species(model_df, features, splits)`: inline expanding-window CV that returns OOF probs for **both** RF and LR (needed for the ROC/PR/calibration figures). Hardcodes Amanda's hyperparameters (n_estimators=100, max_iter=3000, class_weight=balanced, random_state=42). The `src/models.evaluate_time_splits` only returns RF probs, hence this separate inline version.
+- **Cell 32** — per-species model loop: iterates `SPECIES_LIST`, calls `build_species_model_df` + `evaluate_time_splits_species`, prints AUC summary per species, writes CSVs to `outputs/per_species/{species}/`
+- **Cells 33–37** — five per-species figure loops: feature importance bar chart, ROC curves (RF vs LR), PR curves, calibration plots, spatial risk maps (fits a final RF per species for the map)
+
+**Key design choices vs `tetttt.ipynb`:**
+- Uses `model_df_clean` (pre-computed) instead of re-loading infrastructure/weather per species → much faster second run
+- Uses the global `grid` so `cell_id`s are consistent with the pooled model
+- Output path is `outputs/per_species/{species}/` not Amanda's Windows path
+
+**What if I deleted it:** lose the clean intermediate per-species notebook. Rebuild from `test.ipynb` + `tetttt.ipynb` using T4 P6.
 
 ### `notebooks/cache/`
 
@@ -571,6 +609,18 @@ Six PNG figures produced by [[train_final_model]]'s Band G. All from the most re
 #### `outputs/figures/top_features.png`
 
 33 KB. Top-15 feature importance bar chart. Produced by `visualisation.plot_top_features`.
+
+### `outputs/per_species/`
+
+Created by `notebooks/test_with_animals.ipynb` cell 32. Four subdirectories — one per species (`roe_deer/`, `moose/`, `wild_boar/`, `fallow_deer/`). Each contains:
+
+- `cv_results_{species}.csv` — per-fold AUC/precision/recall/F1/accuracy for RF and LR
+- `feature_importance_{species}.csv` — mean RF feature importances across folds
+- `model_df_{species}.csv` — the per-species modelling dataframe used for that run
+
+Plus PDF figures written by cells 33–37: `feature_importance_{species}.pdf`, `roc_{species}.pdf`, `pr_{species}.pdf`, `calibration_{species}.pdf`, `risk_map_{species}.pdf`.
+
+**What if I deleted it:** re-run cells 32–37 of `test_with_animals.ipynb`.
 
 ### `outputs/models/`
 
