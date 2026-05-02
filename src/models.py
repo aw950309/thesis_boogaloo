@@ -57,7 +57,8 @@ def evaluate_time_splits(
     target: str,
     splits: list[tuple[list, list]],
     hyperparameters: dict,
-) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, pd.Series]:
+    return_lr_probs: bool = False,
+) -> tuple:
     """Run LR + RF across expanding-window folds (cell 14 verbatim).
 
     For each fold: train LogisticRegression (with StandardScaler) and
@@ -65,7 +66,11 @@ def evaluate_time_splits(
     on the held-out test month. Accumulate RF out-of-fold probabilities and
     labels plus per-fold feature importances.
 
-    Returns (results_df, oof_probs, oof_labels, mean_importance):
+    Returns (results_df, oof_probs, oof_labels, mean_importance) by default.
+    When return_lr_probs=True, returns (results_df, oof_rf_probs, oof_lr_probs,
+    oof_labels, mean_importance) — 5 values. Existing callers (pooled pipeline)
+    are unaffected by the default.
+
         results_df       — 2 × n_folds rows (one per (fold, model)).
         oof_probs        — np.array of RF out-of-fold predicted probabilities.
         oof_labels       — np.array of true labels matching oof_probs.
@@ -79,6 +84,7 @@ def evaluate_time_splits(
 
     results = []
     oof_probs_rf: list[float] = []
+    oof_probs_lr: list[float] = []
     oof_labels: list[int] = []
     fold_importances: list[pd.Series] = []
 
@@ -126,6 +132,7 @@ def evaluate_time_splits(
         })
 
         oof_probs_rf.extend(y_prob_rf.tolist())
+        oof_probs_lr.extend(y_prob_lr.tolist())
         oof_labels.extend(y_test.tolist())
         fold_importances.append(pd.Series(rf.feature_importances_, index=features))
 
@@ -134,6 +141,14 @@ def evaluate_time_splits(
         pd.concat(fold_importances, axis=1).mean(axis=1).sort_values(ascending=False)
     )
 
+    if return_lr_probs:
+        return (
+            results_df,
+            np.array(oof_probs_rf),
+            np.array(oof_probs_lr),
+            np.array(oof_labels),
+            mean_importance,
+        )
     return results_df, np.array(oof_probs_rf), np.array(oof_labels), mean_importance
 
 

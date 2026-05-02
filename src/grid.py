@@ -5,6 +5,8 @@ Public API:
     spatial_join_points_to_grid(gdf_points, grid)
     compute_grid_risk(gdf_joined, threshold_quantile=0.75)
     build_cell_month_panel(gdf_points, cell_size, threshold_quantile=0.75)
+    build_species_panel(joined, grid, species_name, threshold_quantile=0.75)
+    build_species_model_df(species_name, joined, grid, model_df)
 """
 from __future__ import annotations
 
@@ -109,3 +111,89 @@ def build_cell_month_panel(
     cell_month["risk"] = (cell_month["collision_count"] >= threshold).astype(int)
 
     return grid, joined, cell_month
+
+
+def build_species_panel(
+    joined: gpd.GeoDataFrame,
+    grid: gpd.GeoDataFrame,
+    species_name: str,
+    threshold_quantile: float = 0.75,
+) -> pd.DataFrame:
+    """Per-species cell-month panel with a per-species risk label.
+
+    Filters ``joined`` to ``species_name``, builds the full grid × month panel,
+    then applies ``threshold_quantile`` of non-zero counts as the risk threshold.
+    Month range is taken from ``joined`` (consistent with build_cell_month_panel).
+
+    Returns a DataFrame with columns: cell_id, period_start, collision_count, risk.
+    """
+    from src.config import SPECIES_MAP
+
+    df = joined[["cell_id", "datetime", "species"]].copy()
+    df["species"] = df["species"].astype(str).str.strip().str.lower().replace(SPECIES_MAP)
+    df = df[df["species"] == species_name].copy()
+    df["cell_id"] = df["cell_id"].astype(int)
+    df["period_start"] = df["datetime"].dt.to_period("M").dt.to_timestamp()
+
+    observed = (
+        df.groupby(["cell_id", "period_start"])
+        .size()
+        .reset_index(name="collision_count")
+    )
+
+    all_months = pd.date_range(
+        start=joined["datetime"].dt.to_period("M").min().to_timestamp(),
+        end=joined["datetime"].dt.to_period("M").max().to_timestamp(),
+        freq="MS",
+    )
+
+    full_index = pd.MultiIndex.from_product(
+        [grid["cell_id"].astype(int).unique(), all_months],
+        names=["cell_id", "period_start"],
+    )
+    species_cm = (
+        full_index.to_frame(index=False)
+        .merge(observed, on=["cell_id", "period_start"], how="left")
+    )
+    species_cm["collision_count"] = species_cm["collision_count"].fillna(0).astype(int)
+
+    nonzero = species_cm.loc[species_cm["collision_count"] > 0, "collision_count"]
+    if nonzero.empty:
+        raise ValueError(f"No non-zero collisions for species '{species_name}'.")
+    threshold = nonzero.quantile(threshold_quantile)
+    species_cm["risk"] = (species_cm["collision_count"] >= threshold).astype(int)
+
+    return species_cm
+
+
+def build_species_model_df(
+    species_name: str,
+    joined: gpd.GeoDataFrame,
+    grid: gpd.GeoDataFrame,
+    model_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Swap the pooled risk label in model_df for a per-species one.
+
+    All feature columns (infrastructure, weather, lags) are reused from
+    ``model_df`` — no re-loading. Returns ``(df, features)`` where
+    ``features = get_species_features(species_name)`` (22 features: 19 base
+    environmental + 3 species-specific lag/hunting/rut).
+    """
+    from src.config import get_species_features
+
+    species_cm = build_species_panel(joined, grid, species_name)
+
+    feature_cols = [c for c in model_df.columns if c not in ["risk", "collision_count"]]
+    df = model_df[feature_cols].merge(
+        species_cm[["cell_id", "period_start", "collision_count", "risk"]],
+        on=["cell_id", "period_start"],
+        how="inner",
+    )
+
+    species_f = get_species_features(species_name)
+    missing = [f for f in species_f if f not in df.columns]
+    if missing:
+        raise ValueError(f"Missing features for '{species_name}': {missing}")
+
+    df = df.dropna(subset=species_f).copy()
+    return df, species_f

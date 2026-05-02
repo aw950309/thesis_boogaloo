@@ -61,6 +61,39 @@ FEATURES: list[str] = [
 # `speedlimit_90plus_share` only). For Phase 5 we keep the notebook-faithful
 # 2-item `"speed"` to preserve parity. The architectural improvement
 # (3-item `"speed"`) is deferred to a post-Phase-9 baseline regeneration.
+# Per-species constants — used by src/grid.py and scripts/train_final_model.py.
+SPECIES_LIST: list[str] = ["roe_deer", "moose", "wild_boar", "fallow_deer"]
+
+SPECIES_LABELS: dict[str, str] = {
+    "roe_deer":    "Roe deer",
+    "moose":       "Moose",
+    "wild_boar":   "Wild boar",
+    "fallow_deer": "Fallow deer",
+}
+
+# Environmental features shared across all per-species models.
+# Derived from FEATURES by removing species-prefixed columns (cross-species
+# lag1, hunting_frac, rut_frac). Rail and road_density retained — P3 decision
+# (wrongly excluded in Amanda's prototype). Result: 19 features.
+_SPECIES_PREFIXES = ("moose_", "roe_deer_", "wild_boar_", "fallow_deer_")
+BASE_FEATURES_SPECIES: list[str] = [
+    f for f in FEATURES if not f.startswith(_SPECIES_PREFIXES)
+]
+
+
+def get_species_features(species_name: str) -> list[str]:
+    """Return full feature list for one species: 19 base + 3 species-specific.
+
+    Species-specific features are {species}_lag1, {species}_hunting_frac,
+    {species}_rut_frac — derived from the species name string.
+    """
+    return BASE_FEATURES_SPECIES + [
+        f"{species_name}_lag1",
+        f"{species_name}_hunting_frac",
+        f"{species_name}_rut_frac",
+    ]
+
+
 GROUPS: dict[str, list[str]] = {
     "roads":   ["road_density", "nearest_road_distance_m"],
     "fences":  ["fence_density", "fence_near_10km"],
