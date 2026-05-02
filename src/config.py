@@ -94,6 +94,25 @@ def get_species_features(species_name: str) -> list[str]:
     ]
 
 
+# No-lag variant: BASE_FEATURES_SPECIES minus all *_lag1 features (15 features).
+BASE_FEATURES_SPECIES_NO_LAG: list[str] = [
+    f for f in BASE_FEATURES_SPECIES if not f.endswith("_lag1")
+]
+
+
+def get_species_features_no_lag(species_name: str) -> list[str]:
+    """Per-species feature list without lag features: 15 base + 2 species-specific.
+
+    Drops night_lag1/dawn_lag1/day_lag1/dusk_lag1 from base and {species}_lag1
+    from species-specific. Used for the no-lag variant to expose environmental
+    determinants without autocorrelation signal.
+    """
+    return BASE_FEATURES_SPECIES_NO_LAG + [
+        f"{species_name}_hunting_frac",
+        f"{species_name}_rut_frac",
+    ]
+
+
 GROUPS: dict[str, list[str]] = {
     "roads":   ["road_density", "nearest_road_distance_m"],
     "fences":  ["fence_density", "fence_near_10km"],

@@ -41,7 +41,10 @@ from src import infrastructure
 from src import weather
 from src import models
 from src import visualisation
-from src.config import FEATURES, GROUPS, SPECIES_LIST, SPECIES_LABELS, get_species_features
+from src.config import (
+    FEATURES, GROUPS, SPECIES_LIST, SPECIES_LABELS,
+    get_species_features, get_species_features_no_lag,
+)
 from src.grid import build_species_model_df as _build_species_model_df
 from src.exports import export_artefacts
 
@@ -229,6 +232,8 @@ def main(
     figures_dir: Path = Path("outputs/figures"),
     seed: int = 42,
     species_filter: str | None = None,
+    species_variant: str = "lag",
+    species_mode: str = "road",
     use_cache: bool = True,
     hyperparameters_path: Path = Path("config/hyperparameters.yaml"),
     dump_parity_arrays: Path | None = None,
@@ -475,84 +480,115 @@ def main(
         species_output_dir = _REPO_ROOT / "outputs/per_species"
         species_comparison_rows = []
 
+        variants_to_run = (
+            ["lag", "no_lag"] if species_variant == "both"
+            else [species_variant.replace("-", "_")]
+        )
+        modes_to_run = (
+            ["road", "rail"] if species_mode == "both"
+            else [species_mode]
+        )
+
         for sp in species_to_run:
-            print(f"\n{'=' * 70}\n  {sp}\n{'=' * 70}")
             sp_label = SPECIES_LABELS[sp]
+            # Build the per-species model_df once (shared across variants/modes)
+            df_s_base, _ = _build_species_model_df(sp, joined, grid_full, model_df_clean)
 
-            df_s, features_s = _build_species_model_df(sp, joined, grid_full, model_df_clean)
-            print(f"  threshold printed during build; shape={df_s.shape}, "
-                  f"positive_rate={df_s['risk'].mean():.3f}")
+            for mode in modes_to_run:
+                if mode == "rail":
+                    # Subset to cells with rail presence.
+                    # Note: model_df_clean is already road-filtered, so rail mode
+                    # gives cells with both road and rail infrastructure.
+                    df_mode = df_s_base[df_s_base["rail_density"] > 0].copy()
+                else:
+                    df_mode = df_s_base
 
-            out_dir = species_output_dir / sp
-            out_dir.mkdir(parents=True, exist_ok=True)
+                if len(df_mode) == 0:
+                    print(f"  Skipping {sp} / {mode} — no rows after mode filter.")
+                    continue
 
-            months_s = sorted(df_s["period_start"].unique())
-            splits_s = models.make_expanding_time_splits(
-                months_s, min_train_months=12, test_horizon=1
-            )
+                for var in variants_to_run:
+                    print(f"\n{'=' * 70}\n  {sp} | variant={var} | mode={mode}\n{'=' * 70}")
 
-            res_df, oof_rf, oof_lr, oof_lbl, mean_imp = models.evaluate_time_splits(
-                df_s, features_s, "risk", splits_s, hyperparameters,
-                return_lr_probs=True,
-            )
+                    if var == "no_lag":
+                        features_s = get_species_features_no_lag(sp)
+                    else:
+                        features_s = get_species_features(sp)
 
-            summary = (
-                res_df.groupby("model")[["auc", "precision", "recall", "f1", "accuracy"]]
-                .agg(["mean", "std"])
-                .round(3)
-            )
-            print(summary)
+                    df_var = df_mode.dropna(subset=features_s).copy()
+                    print(f"  shape={df_var.shape}, positive_rate={df_var['risk'].mean():.3f}")
 
-            res_df.to_csv(out_dir / f"cv_results_{sp}.csv", index=False)
-            mean_imp.to_csv(out_dir / f"feature_importance_{sp}.csv")
-            df_s.to_csv(out_dir / f"model_df_{sp}.csv", index=False)
+                    out_dir = species_output_dir / f"{sp}_{mode}_{var}"
+                    out_dir.mkdir(parents=True, exist_ok=True)
 
-            # Fit final per-species RF for the risk map
-            rf_s = RandomForestClassifier(
-                **hyperparameters["random_forest"]
-            )
-            rf_s.fit(df_s[features_s], df_s["risk"])
+                    months_s = sorted(df_var["period_start"].unique())
+                    splits_s = models.make_expanding_time_splits(
+                        months_s, min_train_months=12, test_horizon=1
+                    )
 
-            fig, _ = visualisation.plot_species_feature_importance(mean_imp, sp_label)
-            fig.savefig(out_dir / f"feature_importance_{sp}.pdf", bbox_inches="tight")
-            plt.close(fig)
+                    res_df, oof_rf, oof_lr, oof_lbl, mean_imp = models.evaluate_time_splits(
+                        df_var, features_s, "risk", splits_s, hyperparameters,
+                        return_lr_probs=True,
+                    )
 
-            fig, _ = visualisation.plot_roc(
-                oof_rf, oof_lbl, oof_lr_probs=oof_lr,
-                title=f"ROC Curve — {sp_label}",
-            )
-            fig.savefig(out_dir / f"roc_{sp}.pdf", bbox_inches="tight")
-            plt.close(fig)
+                    summary = (
+                        res_df.groupby("model")[["auc", "precision", "recall", "f1", "accuracy"]]
+                        .agg(["mean", "std"])
+                        .round(3)
+                    )
+                    print(summary)
 
-            fig, _ = visualisation.plot_precision_recall(
-                oof_rf, oof_lbl, oof_lr_probs=oof_lr,
-                title=f"Precision–Recall — {sp_label}",
-            )
-            fig.savefig(out_dir / f"pr_{sp}.pdf", bbox_inches="tight")
-            plt.close(fig)
+                    res_df.to_csv(out_dir / f"cv_results_{sp}.csv", index=False)
+                    mean_imp.to_csv(out_dir / f"feature_importance_{sp}.csv")
+                    df_var.to_csv(out_dir / f"model_df_{sp}.csv", index=False)
 
-            fig, _ = visualisation.plot_calibration(
-                oof_rf, oof_lbl, oof_lr_probs=oof_lr,
-                title=f"Calibration — {sp_label}",
-            )
-            fig.savefig(out_dir / f"calibration_{sp}.pdf", bbox_inches="tight")
-            plt.close(fig)
+                    rf_s = RandomForestClassifier(**hyperparameters["random_forest"])
+                    rf_s.fit(df_var[features_s], df_var["risk"])
 
-            fig, _ = visualisation.plot_species_risk_map(
-                grid_full, joined, sp, sp_label, df_s, rf_s, features_s,
-            )
-            fig.savefig(out_dir / f"risk_map_{sp}.pdf", bbox_inches="tight")
-            plt.close(fig)
+                    title_suffix = f"{sp_label} ({mode}, {var.replace('_', '-')})"
 
-            for model_name in ["logreg", "rf"]:
-                species_comparison_rows.append({
-                    "species":      sp,
-                    "model":        model_name,
-                    "auc_mean":     summary.loc[model_name, ("auc",    "mean")],
-                    "auc_std":      summary.loc[model_name, ("auc",    "std")],
-                    "f1_mean":      summary.loc[model_name, ("f1",     "mean")],
-                    "recall_mean":  summary.loc[model_name, ("recall", "mean")],
-                })
+                    fig, _ = visualisation.plot_species_feature_importance(mean_imp, title_suffix)
+                    fig.savefig(out_dir / f"feature_importance_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, _ = visualisation.plot_roc(
+                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
+                        title=f"ROC Curve — {title_suffix}",
+                    )
+                    fig.savefig(out_dir / f"roc_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, _ = visualisation.plot_precision_recall(
+                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
+                        title=f"Precision–Recall — {title_suffix}",
+                    )
+                    fig.savefig(out_dir / f"pr_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, _ = visualisation.plot_calibration(
+                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
+                        title=f"Calibration — {title_suffix}",
+                    )
+                    fig.savefig(out_dir / f"calibration_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, _ = visualisation.plot_species_risk_map(
+                        grid_full, joined, sp, sp_label, df_var, rf_s, features_s,
+                    )
+                    fig.savefig(out_dir / f"risk_map_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    for model_name in ["logreg", "rf"]:
+                        species_comparison_rows.append({
+                            "species":      sp,
+                            "variant":      var,
+                            "mode":         mode,
+                            "model":        model_name,
+                            "auc_mean":     summary.loc[model_name, ("auc",    "mean")],
+                            "auc_std":      summary.loc[model_name, ("auc",    "std")],
+                            "f1_mean":      summary.loc[model_name, ("f1",     "mean")],
+                            "recall_mean":  summary.loc[model_name, ("recall", "mean")],
+                        })
 
         if species_comparison_rows:
             comparison_df = pd.DataFrame(species_comparison_rows)
@@ -601,6 +637,16 @@ def _build_argparser() -> "argparse.ArgumentParser":
                    help="Run per-species models. 'all' = all four species; "
                         "or one of: roe_deer, moose, wild_boar, fallow_deer. "
                         "Default: pooled pipeline only.")
+    p.add_argument("--variant", type=str, default="lag", dest="species_variant",
+                   choices=["lag", "no-lag", "both"],
+                   help="Feature variant for per-species run. 'lag' = full 22-feature set "
+                        "(default); 'no-lag' = 17-feature set without lag features; "
+                        "'both' = run both variants.")
+    p.add_argument("--mode", type=str, default="road", dest="species_mode",
+                   choices=["road", "rail", "both"],
+                   help="Infrastructure mode filter for per-species run. 'road' = road cells "
+                        "only (default, current behaviour); 'rail' = cells with rail presence; "
+                        "'both' = run road and rail separately.")
     cache_grp = p.add_mutually_exclusive_group()
     cache_grp.add_argument("--use-cache", dest="use_cache", action="store_true", default=True,
                            help="Read parquet feature caches if present (default: True)")
@@ -625,6 +671,8 @@ if __name__ == "__main__":
         figures_dir=args.figures_dir,
         seed=args.seed,
         species_filter=args.species_filter,
+        species_variant=args.species_variant,
+        species_mode=args.species_mode,
         use_cache=args.use_cache,
         hyperparameters_path=args.hyperparameters_path,
         dump_parity_arrays=args.dump_parity_arrays,
