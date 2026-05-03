@@ -125,7 +125,9 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     print("        🚂💨  hang on tight — firing up the program!!  💨🚂      ")
     print("        🌸✨  loading all the moose data, please admire the banner  ✨🌸")
     print()
-    _kawaii_pause(5.0)
+    _kawaii_pause(8.5)
+    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    print()
 
     _kawaii_section_banner("what shall we run today?? ✿(◕‿◕✿)", "🦄")
     print("  [1] 🌈 Full sweep  — pooled + ALL per-species   (~55 min)  ← recommended!! 💖")
