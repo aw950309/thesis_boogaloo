@@ -242,7 +242,7 @@ def plot_species_risk_map(
     ``rf_s`` is the final RF fitted on all per-species data.
     Returns ``(figure, DataFrame[cell_id, risk_prob])``.
     """
-    from src.config import SPECIES_MAP
+    from config import SPECIES_MAP
 
     df = df_s.copy()
     df["risk_prob"] = rf_s.predict_proba(df[features_s])[:, 1]
