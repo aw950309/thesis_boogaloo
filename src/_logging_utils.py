@@ -90,6 +90,7 @@ def _banner_end(output_dir: Path, models_dir: Path, figures_dir: Path) -> None:
     print("        🦌🎀🌸   tROEdeer-ly impressive results!! the deer are proud!!   🌸🎀🦌           ")
     print("        🐗💖✨   wild-BOARsome analysis!! absolutely feral science!!   ✨💖🐗             ")
     print("        🌷💕🦄   now go celebrate — you've earned it!!   🦄💕🌷                          ")
+    print("        🌸🎀✨   and don't forget to have an awesome, wonderful, sparkly day!!!!   ✨🎀🌸      ")
     print("                                                                                          ")
     print("              ╭─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─╮                                              ")
     print("              │   ⋆｡˚    ٩(◕‿◕✿)۶    ˚｡⋆     │                                          ")
