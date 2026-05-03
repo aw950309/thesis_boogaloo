@@ -7,6 +7,8 @@ from pathlib import Path
 
 
 _TOTAL_STEPS = 24
+_MENU_PAUSE = 2.0   # seconds between menu interactions — edit this to speed up or slow down
+_STEP_FLOOR = 2.0   # minimum seconds each pipeline step stays visible
 
 _STEP_EMOJI = [
     "🐱", "🌸", "🌷", "🌼", "🌻", "🌹", "🌺", "💖", "✨", "🦄",
@@ -48,15 +50,13 @@ def _step_start(label: str) -> float:
     return _time.time()
 
 
-_MIN_STEP_DISPLAY = 2.0  # minimum seconds each step stays visible
-
 def _step_end(t_start: float, message: str) -> None:
     elapsed = _time.time() - t_start
     kao = _KAOMOJI[_STATE["step"] % len(_KAOMOJI)]
     verb = _VERBS[_STATE["step"] % len(_VERBS)]
     print(f"        🌷 {message}")
     print(f"        💕 {kao}  {verb} {elapsed:5.1f}s  ✧･ﾟ:*", flush=True)
-    remaining = _MIN_STEP_DISPLAY - elapsed
+    remaining = _STEP_FLOOR - elapsed
     if remaining > 0:
         _time.sleep(remaining)
 
@@ -142,29 +142,29 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     choice = input("  Choice [1]: ").strip() or "1"
 
     if choice == "1":
-        _kawaii_pause(2.0)
+        _kawaii_pause(_MENU_PAUSE)
         print()
         print("  ✨💖✨  OH WOW BEST CHOICE AMANDA!! the FULL SWEEP!! ✨💖✨")
         print("  🌸  all four species!! all modes!! all variants!! every single combo!!  🌸")
         print("  🦄  24 beautiful per-species models PLUS the pooled baseline!!  🦄")
         print("  💕  this is going to be SPECTACULAR and we are SO proud of you  💕")
-        _kawaii_pause(2.0)
+        _kawaii_pause(_MENU_PAUSE)
         return "all", "all", "both"
 
     if choice == "2":
-        _kawaii_pause(2.0)
+        _kawaii_pause(_MENU_PAUSE)
         print()
         print("  🐱💕  a classic!! the original pooled pipeline!! timeless!! elegant!!  💕🐱")
         print("  🌷  all four species together as ONE beautiful unified model  🌷")
         print("  ✨  clean, fast, powerful — peak wildlife science!!  ✨")
-        _kawaii_pause(2.0)
+        _kawaii_pause(_MENU_PAUSE)
         return None, "default", "lag"
 
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
     print()
     print("  🎀💕  ooh a custom adventure!! let us build your perfect run together!!  💕🎀")
     print("  🌸  answer three tiny questions and we will make magic happen!!  🌸")
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
 
     _kawaii_section_banner("step 1 of 3 — which species?? 🦌🐗", "🌿")
     print("  [1] 🌈 All species   — everyone deserves love!!")
@@ -183,10 +183,10 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         "wild_boar":   "wild boar!! chaotic energy!! absolute unit!! love the commitment!! 🐗🔥",
         "fallow_deer": "fallow deer!! fancy spots!! very distinguished taste!! 🦌👑",
     }[species]
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
     print(f"\n  💕✨  {sp_hype}")
     print(f"  🌸  {sp_label} locked in!! perfect choice!!  🌸")
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
 
     _kawaii_section_banner("step 2 of 3 — which infrastructure mode?? 🚂🛣️", "🌺")
     print("  [1] 🌍 All collisions   — road + rail together, the whole picture!!")
@@ -203,10 +203,10 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         "rail":    "RAIL ONLY!! so brave!! so specific!! the trains will not be ignored!! 🚂💖",
         "both":    "BOTH modes separately!! twice the analysis!! twice the science!! double the moose!! 🔀🦄",
     }[mode]
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
     print(f"\n  💕✨  {mode_hype}")
     print(f"  🌸  {mode_label} locked in!! outstanding decision!!  🌸")
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
 
     _kawaii_section_banner("step 3 of 3 — lag or no-lag?? 🔮📊", "💫")
     print("  [1] 🔮 Lag      — forecast model   (uses last month's collisions as a hint!)")
@@ -220,10 +220,10 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         "no-lag": "no-lag!! pure environmental determinants!! what CAUSES the collisions?? very deep!! 📊🌿",
         "both":   "BOTH variants!! the full comparison!! this IS the thesis contribution!! 🏆✨💖",
     }[variant]
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
     print(f"\n  💕✨  {var_hype}")
     print(f"  🌸  {var_label} locked in!! you are NAILING this!!  🌸")
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
 
     print()
     print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
@@ -232,7 +232,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     print(f"       💖  mode     : {mode_label}")
     print(f"       💖  variant  : {var_label}")
     print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
     return species, mode, variant
 
 
@@ -242,4 +242,4 @@ def _launch_fanfare() -> None:
     print("  🌸  CHUG CHUG CHUG CHUG CHUG CHUG CHUG CHUG!!  🌸")
     print("  💖  here we GOOOOO Amanda hold on tight!!  💖")
     print()
-    _kawaii_pause(2.0)
+    _kawaii_pause(_MENU_PAUSE)
