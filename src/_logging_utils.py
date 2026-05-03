@@ -7,9 +7,11 @@ from pathlib import Path
 
 
 _TOTAL_STEPS = 24
-_MENU_PAUSE = 2.0   # seconds between menu interactions — edit this to speed up or slow down
-_STEP_FLOOR = 2.0   # minimum seconds each pipeline step stays visible
-
+_MENU_PAUSE = 3.0         # seconds before hype text appears after a menu choice
+_CONFIG_HYPE_PAUSE = 7.0  # seconds after hype text before the next config step appears
+_STEP_FLOOR = 5.0         # minimum seconds each pipeline step stays visible
+_STARTUP_TIME = 12.0      # seconds to display the title banner before the pun lines reveal
+_BOOT_PAUSE = 4.0         # seconds of "loading" silence after pressing Enter
 _STEP_EMOJI = [
     "🐱", "🌸", "🌷", "🌼", "🌻", "🌹", "🌺", "💖", "✨", "🦄",
     "🎀", "💕", "🍓", "🧁", "🌈", "🦋", "🪻", "🌙", "⭐", "🐰",
@@ -105,7 +107,7 @@ def _banner_end(output_dir: Path, models_dir: Path, figures_dir: Path) -> None:
     print("")
 
 
-def _kawaii_pause(seconds: float = 2.0) -> None:
+def _kawaii_pause(seconds: float) -> None:
     _time.sleep(seconds)
 
 
@@ -125,16 +127,41 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
     print()
     print("        💕🐱  hello Amanda!! so happy you are here today!!  🐱💕  ")
-    print("        🌷✨  the moose are waiting and they are SO excited  ✨🌷  ")
+    print("        🌷✨  the animals are waiting and they are SO excited  ✨🌷")
+    print("        🌸✨  Firing up the program, please admire the banner!!  ✨🌸", flush=True)
+    print()
+    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    _kawaii_pause(_STARTUP_TIME)
+
+    print()
+    print("        🫎💕   the moose have finished loading and they are MOOSE-T excited to see you!!")
+    print("        🦌✨   ROE-dy and waiting, just for you!!               ")
+    print("        🐗🌸   this is going to be BOAR-illiant science!!        ")
+    print("        🌷💖   absoFAWN-lutely cannot wait to get started!!      ")
+    print()
+    print("  ╔♡══════════════════════════════════════════════════════════♡╗")
+    print("  ║                                                            ║")
+    print("  ║      ✨ 💖   P R E S S   E N T E R   💖 ✨                 ║")
+    print("  ║         to board the kawaii train!!                        ║")
+    print("  ║         🚂💨  ALL ABOARD!!  💨🚂                           ║")
+    print("  ║                                                            ║")
+    print("  ╚♡══════════════════════════════════════════════════════════♡╝")
+    print()
+    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    input("")
+
+    print("        🌈💕  OH WOW LET'S GO!! the moose have been waiting ALL DAY for this!!  💕🌈")
+    print("        🦄✨  you are literally their favourite scientist!! they are SO happy!!  ✨🦄")
+    _kawaii_pause(_STEP_FLOOR)
     print()
     print("        🚂💨  hang on tight — firing up the program!!  💨🚂      ")
-    print("        🌸✨  loading all the moose data, please admire the banner  ✨🌸")
+    print("        🌸✨  loading all the moose data, please stand by!!  ✨🌸", flush=True)
     print()
-    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ", flush=True)
-    print()
-    _kawaii_pause(10.0)
+    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    _kawaii_pause(_BOOT_PAUSE)
+    _kawaii_pause(_STEP_FLOOR)
 
-    _kawaii_section_banner("what shall we run today?? ✿(◕‿◕✿)", "🦄")
+    _kawaii_section_banner("what would you like to do today, Amanda?? ✿(◕‿◕✿)", "🦄")
     print("  [1] 🌈 Full sweep  — pooled + ALL per-species   (~55 min)  ← recommended!! 💖")
     print("  [2] 🐱 Pooled only — original baseline          (~4 min)   ← quick & classic")
     print("  [3] 🎀 Configure   — i choose my own adventure!!\n")
@@ -186,7 +213,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     _kawaii_pause(_MENU_PAUSE)
     print(f"\n  💕✨  {sp_hype}")
     print(f"  🌸  {sp_label} locked in!! perfect choice!!  🌸")
-    _kawaii_pause(_MENU_PAUSE)
+    _kawaii_pause(_CONFIG_HYPE_PAUSE)
 
     _kawaii_section_banner("step 2 of 3 — which infrastructure mode?? 🚂🛣️", "🌺")
     print("  [1] 🌍 All collisions   — road + rail together, the whole picture!!")
@@ -206,7 +233,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     _kawaii_pause(_MENU_PAUSE)
     print(f"\n  💕✨  {mode_hype}")
     print(f"  🌸  {mode_label} locked in!! outstanding decision!!  🌸")
-    _kawaii_pause(_MENU_PAUSE)
+    _kawaii_pause(_CONFIG_HYPE_PAUSE)
 
     _kawaii_section_banner("step 3 of 3 — lag or no-lag?? 🔮📊", "💫")
     print("  [1] 🔮 Lag      — forecast model   (uses last month's collisions as a hint!)")
@@ -223,7 +250,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     _kawaii_pause(_MENU_PAUSE)
     print(f"\n  💕✨  {var_hype}")
     print(f"  🌸  {var_label} locked in!! you are NAILING this!!  🌸")
-    _kawaii_pause(_MENU_PAUSE)
+    _kawaii_pause(_CONFIG_HYPE_PAUSE)
 
     print()
     print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
