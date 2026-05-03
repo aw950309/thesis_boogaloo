@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import random as _random
 import time as _time
+import unicodedata as _unicodedata
 from pathlib import Path
 
 
@@ -46,9 +47,34 @@ def _step_start(label: str) -> float:
     n = _STATE["step"]
     emoji = _STEP_EMOJI[(n - 1) % len(_STEP_EMOJI)]
     trail = _TRAIL_EMOJI[(n - 1) % len(_TRAIL_EMOJI)]
-    print(f"\n  ╭─ ✿ ─ {emoji} ─ ✿ ─ ✿ ─ {trail} ─ ✿ ─ ✿ ─ ✿ ─╮")
+
+    content = f"  │ [{n:2d}/{_TOTAL_STEPS}] {emoji} {label}… {trail}"
+    interior_w = _vw(content) - 4
+
+    seg = "─ ✿ ─"
+    seg_w = _vw(seg)
+
+    top = f"─ {emoji} ─" + seg + f"─ {trail} ─"
+    tw = _vw(top)
+    while tw + seg_w <= interior_w:
+        top += seg
+        tw += seg_w
+    while tw < interior_w:
+        top += "─"
+        tw += 1
+
+    bot = ""
+    bw = 0
+    while bw + seg_w <= interior_w:
+        bot += seg
+        bw += seg_w
+    while bw < interior_w:
+        bot += "─"
+        bw += 1
+
+    print(f"\n  ╭{top}╮")
     print(f"  │ [{n:2d}/{_TOTAL_STEPS}] {emoji} {label}… {trail}")
-    print(f"  ╰─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─╯", flush=True)
+    print(f"  ╰{bot}╯", flush=True)
     return _time.time()
 
 
@@ -111,10 +137,39 @@ def _kawaii_pause(seconds: float) -> None:
     _time.sleep(seconds)
 
 
+def _vw(s: str) -> int:
+    """Visual column width: Wide/Fullwidth chars count as 2, everything else as 1."""
+    return sum(2 if _unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s)
+
+
 def _kawaii_section_banner(title: str, emoji: str = "🌸") -> None:
-    print(f"\n  ╭─ ✿ ─ {emoji} ─ ✿ ─ ✿ ─ {emoji} ─ ✿ ─ ✿ ─ ✿ ─╮")
+    interior_w = _vw(f"  ✨  {title}  ✨") + 1  # +1 for the │ becoming part of alignment
+    seg = "─ ✿ ─"
+    eseg = f"─ {emoji} ─"
+    seg_w = _vw(seg)
+    eseg_w = _vw(eseg)
+
+    top = eseg + seg + eseg
+    tw = eseg_w + seg_w + eseg_w
+    while tw + seg_w <= interior_w:
+        top += seg
+        tw += seg_w
+    while tw < interior_w:
+        top += "─"
+        tw += 1
+
+    bot = ""
+    bw = 0
+    while bw + seg_w <= interior_w:
+        bot += seg
+        bw += seg_w
+    while bw < interior_w:
+        bot += "─"
+        bw += 1
+
+    print(f"\n  ╭{top}╮")
     print(f"  │  ✨  {title}  ✨")
-    print(f"  ╰─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─╯\n")
+    print(f"  ╰{bot}╯\n")
 
 
 def _interactive_menu() -> tuple[str | None, str, str]:
@@ -161,106 +216,139 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     _kawaii_pause(_BOOT_PAUSE)
     _kawaii_pause(_STEP_FLOOR)
 
-    _kawaii_section_banner("what would you like to do today, Amanda?? ✿(◕‿◕✿)", "🦄")
-    print("  [1] 🌈 Full sweep  — pooled + ALL per-species   (~55 min)  ← recommended!! 💖")
-    print("  [2] 🐱 Pooled only — original baseline          (~4 min)   ← quick & classic")
-    print("  [3] 🎀 Configure   — i choose my own adventure!!\n")
+    _silly = "  (ಠ_ಠ)  that's not an option, silly!! choose again!!  (ಠ_ಠ)"
 
-    choice = input("  Choice [1]: ").strip() or "1"
+    while True:
+        _kawaii_section_banner("what would you like to do today, Amanda?? ✿(◕‿◕✿)", "🦄")
+        print("  [1] 🌈 Full sweep  — pooled + ALL per-species   (~55 min)  ← recommended!! 💖")
+        print("  [2] 🐱 Pooled only — original baseline          (~4 min)   ← quick & classic")
+        print("  [3] 🎀 Configure   — i choose my own adventure!!\n")
 
-    if choice == "1":
+        while True:
+            choice = input("  Choice [1]: ").strip() or "1"
+            if choice in ("1", "2", "3"):
+                break
+            print(_silly)
+
+        if choice == "1":
+            _kawaii_pause(_MENU_PAUSE)
+            print()
+            print("  ✨💖✨  OH WOW BEST CHOICE AMANDA!! the FULL SWEEP!! ✨💖✨")
+            print("  🌸  all four species!! all modes!! all variants!! every single combo!!  🌸")
+            print("  🦄  24 beautiful per-species models PLUS the pooled baseline!!  🦄")
+            print("  💕  this is going to be SPECTACULAR and we are SO proud of you  💕")
+            _kawaii_pause(_MENU_PAUSE)
+            return "all", "all", "both"
+
+        if choice == "2":
+            _kawaii_pause(_MENU_PAUSE)
+            print()
+            print("  🐱💕  a classic!! the original pooled pipeline!! timeless!! elegant!!  💕🐱")
+            print("  🌷  all four species together as ONE beautiful unified model  🌷")
+            print("  ✨  clean, fast, powerful — peak wildlife science!!  ✨")
+            _kawaii_pause(_MENU_PAUSE)
+            return None, "default", "lag"
+
         _kawaii_pause(_MENU_PAUSE)
         print()
-        print("  ✨💖✨  OH WOW BEST CHOICE AMANDA!! the FULL SWEEP!! ✨💖✨")
-        print("  🌸  all four species!! all modes!! all variants!! every single combo!!  🌸")
-        print("  🦄  24 beautiful per-species models PLUS the pooled baseline!!  🦄")
-        print("  💕  this is going to be SPECTACULAR and we are SO proud of you  💕")
+        print("  🎀💕  ooh a custom adventure!! let us build your perfect run together!!  💕🎀")
+        print("  🌸  answer three tiny questions and we will make magic happen!!  🌸")
         _kawaii_pause(_MENU_PAUSE)
-        return "all", "all", "both"
 
-    if choice == "2":
+        _kawaii_section_banner("step 1 of 3 — which species?? 🦌🐗", "🌿")
+        print("  [1] 🌈 All species   — everyone deserves love!!")
+        print("  [2] 🦌 Roe deer      — elegant and speedy!!")
+        print("  [3] 🫎 Moose         — the big majestic one!!")
+        print("  [4] 🐗 Wild boar     — chaotic and wonderful!!")
+        print("  [5] 🦌 Fallow deer   — fancy and fabulous!!\n")
+        while True:
+            sp = input("  Choice [1]: ").strip() or "1"
+            if sp in ("1", "2", "3", "4", "5"):
+                break
+            print(_silly)
+        species = {"1": "all", "2": "roe_deer", "3": "moose", "4": "wild_boar", "5": "fallow_deer"}[sp]
+        sp_label = {"all": "ALL SPECIES 🌈", "roe_deer": "roe deer 🦌", "moose": "moose 🫎",
+                    "wild_boar": "wild boar 🐗", "fallow_deer": "fallow deer 🦌"}[species]
+        sp_hype = {
+            "all":         "ALL SPECIES!! every single one!! the full squad!! nobody left behind!! 🌈💖",
+            "roe_deer":    "roe deer!! so graceful!! so fast!! such tiny hooves!! 🦌✨",
+            "moose":       "MOOSE!! the icon!! the legend!! the big beautiful baby!! 🫎💕",
+            "wild_boar":   "wild boar!! chaotic energy!! absolute unit!! love the commitment!! 🐗🔥",
+            "fallow_deer": "fallow deer!! fancy spots!! very distinguished taste!! 🦌👑",
+        }[species]
         _kawaii_pause(_MENU_PAUSE)
+        print(f"\n  💕✨  {sp_hype}")
+        print(f"  🌸  {sp_label} locked in!! perfect choice!!  🌸")
+        _kawaii_pause(_CONFIG_HYPE_PAUSE)
+
+        _kawaii_section_banner("step 2 of 3 — which infrastructure mode?? 🚂🛣️", "🌺")
+        print("  [1] 🌍 All collisions   — road + rail together, the whole picture!!")
+        print("  [2] 🛣️  Road only        — classic road WVC analysis!!")
+        print("  [3] 🚂 Rail only        — brave!! very niche!! we love the audacity!!")
+        print("  [4] 🔀 Both separately  — road AND rail, two analyses in one!!\n")
+        while True:
+            md = input("  Choice [1]: ").strip() or "1"
+            if md in ("1", "2", "3", "4"):
+                break
+            print(_silly)
+        mode = {"1": "default", "2": "road", "3": "rail", "4": "both"}[md]
+        mode_label = {"default": "ALL COLLISIONS 🌍", "road": "road only 🛣️",
+                      "rail": "rail only 🚂", "both": "road + rail separately 🔀"}[mode]
+        mode_hype = {
+            "default": "all collisions!! the full picture!! road AND rail together in beautiful harmony!! 🌍💕",
+            "road":    "road only!! the classic!! where it all started!! roads roads roads!! 🛣️✨",
+            "rail":    "RAIL ONLY!! so brave!! so specific!! the trains will not be ignored!! 🚂💖",
+            "both":    "BOTH modes separately!! twice the analysis!! twice the science!! double the moose!! 🔀🦄",
+        }[mode]
+        _kawaii_pause(_MENU_PAUSE)
+        print(f"\n  💕✨  {mode_hype}")
+        print(f"  🌸  {mode_label} locked in!! outstanding decision!!  🌸")
+        _kawaii_pause(_CONFIG_HYPE_PAUSE)
+
+        _kawaii_section_banner("step 3 of 3 — lag or no-lag?? 🔮📊", "💫")
+        print("  [1] 🔮 Lag      — forecast model   (uses last month's collisions as a hint!)")
+        print("  [2] 📊 No-lag   — determinants     (pure environmental features only!! very scientific!!)")
+        print("  [3] ✨ Both     — run both variants — maximum science!!\n")
+        while True:
+            vr = input("  Choice [1]: ").strip() or "1"
+            if vr in ("1", "2", "3"):
+                break
+            print(_silly)
+        variant = {"1": "lag", "2": "no-lag", "3": "both"}[vr]
+        var_label = {"lag": "lag (forecast) 🔮", "no-lag": "no-lag (determinants) 📊", "both": "BOTH variants ✨"}[variant]
+        var_hype = {
+            "lag":    "lag features!! using the past to predict the future!! very time-series-pilled!! 🔮💕",
+            "no-lag": "no-lag!! pure environmental determinants!! what CAUSES the collisions?? very deep!! 📊🌿",
+            "both":   "BOTH variants!! the full comparison!! this IS the thesis contribution!! 🏆✨💖",
+        }[variant]
+        _kawaii_pause(_MENU_PAUSE)
+        print(f"\n  💕✨  {var_hype}")
+        print(f"  🌸  {var_label} locked in!! you are NAILING this!!  🌸")
+        _kawaii_pause(_CONFIG_HYPE_PAUSE)
+
         print()
-        print("  🐱💕  a classic!! the original pooled pipeline!! timeless!! elegant!!  💕🐱")
-        print("  🌷  all four species together as ONE beautiful unified model  🌷")
-        print("  ✨  clean, fast, powerful — peak wildlife science!!  ✨")
+        print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+        print(f"       🎀  CONFIGURATION COMPLETE!!  🎀")
+        print(f"       💖  species  : {sp_label}")
+        print(f"       💖  mode     : {mode_label}")
+        print(f"       💖  variant  : {var_label}")
+        print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+        print()
+        print("  [y] ✅  yes!! lock it in and let's GO!!  💖")
+        print("  [n] 🔄  hmm actually... let me choose again!!\n")
+        while True:
+            confirm = input("  Confirm [Y/n]: ").strip().lower() or "y"
+            if confirm in ("y", "n"):
+                break
+            print(_silly)
+
+        if confirm == "y":
+            _kawaii_pause(_MENU_PAUSE)
+            return species, mode, variant
+
+        print()
+        print("  💕  no worries!! let's start over!! the moose are very patient!!  💕")
         _kawaii_pause(_MENU_PAUSE)
-        return None, "default", "lag"
-
-    _kawaii_pause(_MENU_PAUSE)
-    print()
-    print("  🎀💕  ooh a custom adventure!! let us build your perfect run together!!  💕🎀")
-    print("  🌸  answer three tiny questions and we will make magic happen!!  🌸")
-    _kawaii_pause(_MENU_PAUSE)
-
-    _kawaii_section_banner("step 1 of 3 — which species?? 🦌🐗", "🌿")
-    print("  [1] 🌈 All species   — everyone deserves love!!")
-    print("  [2] 🦌 Roe deer      — elegant and speedy!!")
-    print("  [3] 🫎 Moose         — the big majestic one!!")
-    print("  [4] 🐗 Wild boar     — chaotic and wonderful!!")
-    print("  [5] 🦌 Fallow deer   — fancy and fabulous!!\n")
-    sp = input("  Choice [1]: ").strip() or "1"
-    species = {"1": "all", "2": "roe_deer", "3": "moose", "4": "wild_boar", "5": "fallow_deer"}.get(sp, "all")
-    sp_label = {"all": "ALL SPECIES 🌈", "roe_deer": "roe deer 🦌", "moose": "moose 🫎",
-                "wild_boar": "wild boar 🐗", "fallow_deer": "fallow deer 🦌"}[species]
-    sp_hype = {
-        "all":         "ALL SPECIES!! every single one!! the full squad!! nobody left behind!! 🌈💖",
-        "roe_deer":    "roe deer!! so graceful!! so fast!! such tiny hooves!! 🦌✨",
-        "moose":       "MOOSE!! the icon!! the legend!! the big beautiful baby!! 🫎💕",
-        "wild_boar":   "wild boar!! chaotic energy!! absolute unit!! love the commitment!! 🐗🔥",
-        "fallow_deer": "fallow deer!! fancy spots!! very distinguished taste!! 🦌👑",
-    }[species]
-    _kawaii_pause(_MENU_PAUSE)
-    print(f"\n  💕✨  {sp_hype}")
-    print(f"  🌸  {sp_label} locked in!! perfect choice!!  🌸")
-    _kawaii_pause(_CONFIG_HYPE_PAUSE)
-
-    _kawaii_section_banner("step 2 of 3 — which infrastructure mode?? 🚂🛣️", "🌺")
-    print("  [1] 🌍 All collisions   — road + rail together, the whole picture!!")
-    print("  [2] 🛣️  Road only        — classic road WVC analysis!!")
-    print("  [3] 🚂 Rail only        — brave!! very niche!! we love the audacity!!")
-    print("  [4] 🔀 Both separately  — road AND rail, two analyses in one!!\n")
-    md = input("  Choice [1]: ").strip() or "1"
-    mode = {"1": "default", "2": "road", "3": "rail", "4": "both"}.get(md, "default")
-    mode_label = {"default": "ALL COLLISIONS 🌍", "road": "road only 🛣️",
-                  "rail": "rail only 🚂", "both": "road + rail separately 🔀"}[mode]
-    mode_hype = {
-        "default": "all collisions!! the full picture!! road AND rail together in beautiful harmony!! 🌍💕",
-        "road":    "road only!! the classic!! where it all started!! roads roads roads!! 🛣️✨",
-        "rail":    "RAIL ONLY!! so brave!! so specific!! the trains will not be ignored!! 🚂💖",
-        "both":    "BOTH modes separately!! twice the analysis!! twice the science!! double the moose!! 🔀🦄",
-    }[mode]
-    _kawaii_pause(_MENU_PAUSE)
-    print(f"\n  💕✨  {mode_hype}")
-    print(f"  🌸  {mode_label} locked in!! outstanding decision!!  🌸")
-    _kawaii_pause(_CONFIG_HYPE_PAUSE)
-
-    _kawaii_section_banner("step 3 of 3 — lag or no-lag?? 🔮📊", "💫")
-    print("  [1] 🔮 Lag      — forecast model   (uses last month's collisions as a hint!)")
-    print("  [2] 📊 No-lag   — determinants     (pure environmental features only!! very scientific!!)")
-    print("  [3] ✨ Both     — run both variants — maximum science!!\n")
-    vr = input("  Choice [1]: ").strip() or "1"
-    variant = {"1": "lag", "2": "no-lag", "3": "both"}.get(vr, "lag")
-    var_label = {"lag": "lag (forecast) 🔮", "no-lag": "no-lag (determinants) 📊", "both": "BOTH variants ✨"}[variant]
-    var_hype = {
-        "lag":    "lag features!! using the past to predict the future!! very time-series-pilled!! 🔮💕",
-        "no-lag": "no-lag!! pure environmental determinants!! what CAUSES the collisions?? very deep!! 📊🌿",
-        "both":   "BOTH variants!! the full comparison!! this IS the thesis contribution!! 🏆✨💖",
-    }[variant]
-    _kawaii_pause(_MENU_PAUSE)
-    print(f"\n  💕✨  {var_hype}")
-    print(f"  🌸  {var_label} locked in!! you are NAILING this!!  🌸")
-    _kawaii_pause(_CONFIG_HYPE_PAUSE)
-
-    print()
-    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    print(f"       🎀  CONFIGURATION COMPLETE!!  🎀")
-    print(f"       💖  species  : {sp_label}")
-    print(f"       💖  mode     : {mode_label}")
-    print(f"       💖  variant  : {var_label}")
-    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    _kawaii_pause(_MENU_PAUSE)
-    return species, mode, variant
 
 
 def _launch_fanfare() -> None:

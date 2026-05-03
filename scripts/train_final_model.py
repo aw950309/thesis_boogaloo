@@ -462,6 +462,9 @@ def main(
                         months_s, min_train_months=12, test_horizon=1
                     )
 
+                    print(f"  🔮  running cross-validation across {len(splits_s)} time folds — RF + LR on each!!")
+                    print(f"  🌸  this is the slow part!! hang tight, the moose are being counted very carefully  🫎💕", flush=True)
+
                     res_df, oof_rf, oof_lr, oof_lbl, mean_imp = models.evaluate_time_splits(
                         df_var, features_s, "risk", splits_s, hyperparameters,
                         return_lr_probs=True,
