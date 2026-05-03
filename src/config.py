@@ -10,12 +10,21 @@ from __future__ import annotations
 # downstream. Source columns confirmed by the runnability audit
 # (notes/notes_code/runnability_audit.md).
 NVR_COLUMN_RENAME: dict[str, str] = {
-    "Datum":      "datetime",
-    "Viltslag":   "species",
-    "Län":        "lan",
-    "Kommun":     "kommun",
-    "Lat WGS84":  "lat",
-    "Long WGS84": "lon",
+    "Datum":          "datetime",
+    "Viltslag":       "species",
+    "Län":            "lan",
+    "Kommun":         "kommun",
+    "Lat WGS84":      "lat",
+    "Long WGS84":     "lon",
+    "Typ av olycka":  "collision_infrastructure",
+}
+
+# Maps Swedish NVR infrastructure-type values to lower-case English used
+# downstream. Added 2026-05-03 (T10) — drives the collision-type target
+# filter in build_species_panel/build_species_model_df.
+COLLISION_INFRASTRUCTURE_MAP: dict[str, str] = {
+    "Väg":     "road",
+    "Järnväg": "rail",
 }
 
 # NVR coordinates are WGS84; downstream spatial work runs in SWEREF99 TM.
@@ -52,15 +61,8 @@ FEATURES: list[str] = [
 ]
 
 # Feature-group dict for the per-group importance plot (cell 22; Row 20).
-#
-# DEVIATION NOTE (2026-04-30): architecture_map.md §6 recommends adding
-# `speedlimit_max` to the `"speed"` group so the per-group sum captures it.
-# Doing so here would break hash-equal parity on
-# parity_baseline/arrays/group_importance.csv — the baseline was produced with
-# the 2-item notebook `"speed"` group (`speedlimit_mean_weighted` and
-# `speedlimit_90plus_share` only). For Phase 5 we keep the notebook-faithful
-# 2-item `"speed"` to preserve parity. The architectural improvement
-# (3-item `"speed"`) is deferred to a post-Phase-9 baseline regeneration.
+# T5 (2026-05-03): speedlimit_max added to "speed" group. Previously excluded
+# to preserve Phase 1 parity baseline; that baseline was regenerated in T10.
 # Per-species constants — used by src/grid.py and scripts/train_final_model.py.
 SPECIES_LIST: list[str] = ["roe_deer", "moose", "wild_boar", "fallow_deer"]
 
@@ -127,6 +129,6 @@ GROUPS: dict[str, list[str]] = {
         "moose_rut_frac", "roe_deer_rut_frac",
         "wild_boar_rut_frac", "fallow_deer_rut_frac",
     ],
-    "speed":   ["speedlimit_mean_weighted", "speedlimit_90plus_share"],
+    "speed":   ["speedlimit_mean_weighted", "speedlimit_max", "speedlimit_90plus_share"],
     "rail":    ["rail_density", "rail_near_10km"],
 }

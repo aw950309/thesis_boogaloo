@@ -118,6 +118,7 @@ def build_species_panel(
     grid: gpd.GeoDataFrame,
     species_name: str,
     threshold_quantile: float = 0.75,
+    collision_infrastructure_filter: str | None = None,
 ) -> pd.DataFrame:
     """Per-species cell-month panel with a per-species risk label.
 
@@ -125,13 +126,30 @@ def build_species_panel(
     then applies ``threshold_quantile`` of non-zero counts as the risk threshold.
     Month range is taken from ``joined`` (consistent with build_cell_month_panel).
 
+    ``collision_infrastructure_filter`` (T10): if set to "road" or "rail", further filters
+    ``joined`` to collisions of that infrastructure type via the ``collision_infrastructure``
+    column. Default ``None`` includes both. Used by per-species mode runs.
+
     Returns a DataFrame with columns: cell_id, period_start, collision_count, risk.
     """
     from src.config import SPECIES_MAP
 
-    df = joined[["cell_id", "datetime", "species"]].copy()
+    cols = ["cell_id", "datetime", "species"]
+    if collision_infrastructure_filter is not None:
+        if "collision_infrastructure" not in joined.columns:
+            raise ValueError(
+                "collision_infrastructure_filter requested but joined frame has no 'collision_infrastructure' column. "
+                "Ensure data_prep.load_collision_data preserved the column."
+            )
+        cols = cols + ["collision_infrastructure"]
+
+    df = joined[cols].copy()
     df["species"] = df["species"].astype(str).str.strip().str.lower().replace(SPECIES_MAP)
     df = df[df["species"] == species_name].copy()
+
+    if collision_infrastructure_filter is not None:
+        df = df[df["collision_infrastructure"] == collision_infrastructure_filter].copy()
+
     df["cell_id"] = df["cell_id"].astype(int)
     df["period_start"] = df["datetime"].dt.to_period("M").dt.to_timestamp()
 
@@ -171,6 +189,7 @@ def build_species_model_df(
     joined: gpd.GeoDataFrame,
     grid: gpd.GeoDataFrame,
     model_df: pd.DataFrame,
+    collision_infrastructure_filter: str | None = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Swap the pooled risk label in model_df for a per-species one.
 
@@ -178,10 +197,16 @@ def build_species_model_df(
     ``model_df`` — no re-loading. Returns ``(df, features)`` where
     ``features = get_species_features(species_name)`` (22 features: 19 base
     environmental + 3 species-specific lag/hunting/rut).
+
+    ``collision_infrastructure_filter`` (T10): passed through to ``build_species_panel`` to
+    restrict the target collision count to a single infrastructure type
+    ("road" or "rail"). Default ``None`` counts all collisions.
     """
     from src.config import get_species_features
 
-    species_cm = build_species_panel(joined, grid, species_name)
+    species_cm = build_species_panel(
+        joined, grid, species_name, collision_infrastructure_filter=collision_infrastructure_filter
+    )
 
     feature_cols = [c for c in model_df.columns if c not in ["risk", "collision_count"]]
     df = model_df[feature_cols].merge(

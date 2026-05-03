@@ -15,7 +15,12 @@ from pathlib import Path
 import pandas as pd
 import geopandas as gpd
 
-from src.config import NVR_COLUMN_RENAME, NVR_SOURCE_CRS, NVR_TARGET_CRS
+from src.config import (
+    COLLISION_INFRASTRUCTURE_MAP,
+    NVR_COLUMN_RENAME,
+    NVR_SOURCE_CRS,
+    NVR_TARGET_CRS,
+)
 
 
 # Plausible Sweden WGS84 bounding box; any row outside is dropped as a
@@ -34,6 +39,9 @@ def load_collision_data(path: Path | str) -> gpd.GeoDataFrame:
     """
     df = pd.read_csv(path, sep=";", encoding="latin1", low_memory=False)
     df = df.rename(columns=NVR_COLUMN_RENAME)
+
+    if "collision_infrastructure" in df.columns:
+        df["collision_infrastructure"] = df["collision_infrastructure"].map(COLLISION_INFRASTRUCTURE_MAP)
 
     for col in ("lat", "lon"):
         df[col] = pd.to_numeric(

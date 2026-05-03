@@ -15,16 +15,23 @@ from src import data_prep
 
 @pytest.fixture
 def nvr_csv(tmp_path: Path) -> Path:
-    """Write a 6-row NVR-shaped CSV with one out-of-bbox row and one bad row."""
+    """Write a 6-row NVR-shaped CSV with one out-of-bbox row and one bad row.
+
+    Includes the `Typ av olycka` column added by T10 so the rename + value-
+    normalisation path is exercised.
+    """
     rows = [
-        ("2020-01-15", "Älg",       "Stockholms län", "Stockholm",  "59,33", "18,07"),  # in bbox
-        ("2020-02-20", "Rådjur",    "Skåne län",      "Lund",       "55,70", "13,19"),  # in bbox
-        ("2020-03-10", "Vildsvin",  "Västra Götaland","Göteborg",   "57,71", "11,97"),  # in bbox
-        ("2020-04-05", "Dovhjort",  "Uppsala län",    "Uppsala",    "59,86", "17,64"),  # in bbox
-        ("2020-05-12", "Älg",       "Murmansk",       "Foreign",    "68,97", "33,08"),  # OUT (lon > 25)
-        ("not-a-date", "Älg",       "Stockholm",      "Stockholm",  "59,33", "18,07"),  # bad datetime
+        ("2020-01-15", "Älg",       "Stockholms län", "Stockholm",  "Väg",     "59,33", "18,07"),  # in bbox
+        ("2020-02-20", "Rådjur",    "Skåne län",      "Lund",       "Järnväg", "55,70", "13,19"),  # in bbox
+        ("2020-03-10", "Vildsvin",  "Västra Götaland","Göteborg",   "Väg",     "57,71", "11,97"),  # in bbox
+        ("2020-04-05", "Dovhjort",  "Uppsala län",    "Uppsala",    "Järnväg", "59,86", "17,64"),  # in bbox
+        ("2020-05-12", "Älg",       "Murmansk",       "Foreign",    "Väg",     "68,97", "33,08"),  # OUT (lon > 25)
+        ("not-a-date", "Älg",       "Stockholm",      "Stockholm",  "Väg",     "59,33", "18,07"),  # bad datetime
     ]
-    df = pd.DataFrame(rows, columns=["Datum", "Viltslag", "Län", "Kommun", "Lat WGS84", "Long WGS84"])
+    df = pd.DataFrame(
+        rows,
+        columns=["Datum", "Viltslag", "Län", "Kommun", "Typ av olycka", "Lat WGS84", "Long WGS84"],
+    )
     csv_path = tmp_path / "nvr_sample.csv"
     df.to_csv(csv_path, sep=";", encoding="latin1", index=False)
     return csv_path
@@ -37,9 +44,9 @@ def test_load_collision_data_round_trip(nvr_csv: Path) -> None:
     assert len(gdf) == 4
 
     # Column rename applied.
-    for col in ("datetime", "species", "lan", "kommun", "lat", "lon"):
+    for col in ("datetime", "species", "lan", "kommun", "lat", "lon", "collision_infrastructure"):
         assert col in gdf.columns
-    for original in ("Datum", "Viltslag", "Län", "Kommun", "Lat WGS84", "Long WGS84"):
+    for original in ("Datum", "Viltslag", "Län", "Kommun", "Typ av olycka", "Lat WGS84", "Long WGS84"):
         assert original not in gdf.columns
 
     # Decimal-comma fix worked.
@@ -50,6 +57,18 @@ def test_load_collision_data_round_trip(nvr_csv: Path) -> None:
 
     # Projection landed in EPSG:3006.
     assert str(gdf.crs) == "EPSG:3006"
+
+
+def test_load_collision_data_collision_infrastructure_normalised(nvr_csv: Path) -> None:
+    """T10: Typ av olycka column should be renamed to collision_infrastructure and values
+    mapped from Swedish (Väg/Järnväg) to lower-case English (road/rail)."""
+    gdf = data_prep.load_collision_data(nvr_csv)
+    assert "collision_infrastructure" in gdf.columns
+    values = set(gdf["collision_infrastructure"].dropna().unique())
+    assert values <= {"road", "rail"}, f"Unexpected collision_infrastructure values: {values}"
+    # Both road and rail represented in the survivors.
+    assert "road" in values
+    assert "rail" in values
 
 
 def test_load_collision_data_multi_year_year_range(tmp_path: Path) -> None:

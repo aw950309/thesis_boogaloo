@@ -55,7 +55,7 @@ from src.exports import export_artefacts
 # completion line with a rotating kaomoji on exit; the start and end banners
 # are extra extravagant (˶ᵔ ᵕ ᵔ˶)♡
 
-_TOTAL_STEPS = 23
+_TOTAL_STEPS = 24
 
 _STEP_EMOJI = [
     "🐱", "🌸", "🌷", "🌼", "🌻", "🌹", "🌺", "💖", "✨", "🦄",
@@ -233,7 +233,7 @@ def main(
     seed: int = 42,
     species_filter: str | None = None,
     species_variant: str = "lag",
-    species_mode: str = "road",
+    species_mode: str = "default",
     use_cache: bool = True,
     hyperparameters_path: Path = Path("config/hyperparameters.yaml"),
     dump_parity_arrays: Path | None = None,
@@ -280,13 +280,14 @@ def main(
     )
     _step_end(t, f"4 feature sets ready ({'cache' if use_cache else 'fresh compute'})")
 
-    t = _step_start("Merging roads + filtering road_length_m > 0")
+    t = _step_start("Merging roads (no filter — combined road-OR-rail filter applied after rail merge)")
     model_df = (
         cell_month
         .merge(infra["roads"].drop(columns="geometry", errors="ignore"), on="cell_id", how="left")
-        .query("road_length_m > 0")
     )
-    _step_end(t, f"model_df now {len(model_df):,} rows")
+    if "road_length_m" in model_df.columns:
+        model_df["road_length_m"] = model_df["road_length_m"].fillna(0)
+    _step_end(t, f"model_df now {len(model_df):,} rows (pre-filter)")
 
     t = _step_start("Merging rail + computing near-10km flag")
     model_df = model_df.merge(
@@ -297,6 +298,16 @@ def main(
         model_df[col] = model_df[col].fillna(0)
     model_df["rail_near_10km"] = (model_df["nearest_rail_distance_m"] < 10_000).astype(int)
     _step_end(t, f"{int(model_df['rail_near_10km'].sum()):,} cell-months near rail")
+
+    t = _step_start("Filtering to cells with infrastructure (road OR rail) — T10 widened base")
+    # T10 (2026-05-03): widened upstream filter from road-only to road-OR-rail.
+    # This brings the pooled cell base into alignment with thesis scope (road
+    # AND rail). Phase 1 parity baseline is regenerated as part of T10.
+    pre = len(model_df)
+    model_df = model_df[
+        (model_df["road_length_m"] > 0) | (model_df["rail_density"] > 0)
+    ].copy()
+    _step_end(t, f"model_df now {len(model_df):,} rows ({pre - len(model_df):,} dropped — no infra)")
 
     t = _step_start("Merging fences + computing near-10km flag")
     model_df = model_df.merge(
@@ -484,31 +495,57 @@ def main(
             ["lag", "no_lag"] if species_variant == "both"
             else [species_variant.replace("-", "_")]
         )
-        modes_to_run = (
-            ["road", "rail"] if species_mode == "both"
-            else [species_mode]
-        )
+        if species_mode == "both":
+            modes_to_run = ["road", "rail"]
+        elif species_mode == "all":
+            modes_to_run = ["default", "road", "rail"]
+        else:
+            modes_to_run = [species_mode]
+
+        # T10 (2026-05-03): mode now filters BOTH the target (collision_count
+        # restricted by Typ av olycka via collision_infrastructure_filter) AND the cells
+        # (filter to cells with the relevant infrastructure). Default mode
+        # filters neither (counts all collisions on any-infra cells).
+        _MODE_COLLISION_INFRASTRUCTURE_FILTER = {
+            "road":    "road",
+            "rail":    "rail",
+            "default": None,
+        }
+        _MODE_CELL_FILTER = {
+            "road":    lambda d: d[d["road_length_m"] > 0],
+            "rail":    lambda d: d[d["rail_density"] > 0],
+            "default": lambda d: d[(d["road_length_m"] > 0) | (d["rail_density"] > 0)],
+        }
 
         for sp in species_to_run:
             sp_label = SPECIES_LABELS[sp]
-            # Build the per-species model_df once (shared across variants/modes)
-            df_s_base, _ = _build_species_model_df(sp, joined, grid_full, model_df_clean)
 
             for mode in modes_to_run:
-                if mode == "rail":
-                    # Subset to cells with rail presence.
-                    # Note: model_df_clean is already road-filtered, so rail mode
-                    # gives cells with both road and rail infrastructure.
-                    df_mode = df_s_base[df_s_base["rail_density"] > 0].copy()
-                else:
-                    df_mode = df_s_base
+                collision_infra_filter = _MODE_COLLISION_INFRASTRUCTURE_FILTER.get(mode)
+                cell_filter = _MODE_CELL_FILTER.get(mode)
+                if cell_filter is None:
+                    print(f"  Skipping {sp} / {mode} — unrecognised mode.")
+                    continue
+
+                # Build the per-species model_df with the mode-specific target
+                # collision-type filter applied at the source.
+                df_s_base, _ = _build_species_model_df(
+                    sp, joined, grid_full, model_df_clean,
+                    collision_infrastructure_filter=collision_infra_filter,
+                )
+                df_mode = cell_filter(df_s_base).copy()
 
                 if len(df_mode) == 0:
                     print(f"  Skipping {sp} / {mode} — no rows after mode filter.")
                     continue
 
                 for var in variants_to_run:
-                    print(f"\n{'=' * 70}\n  {sp} | variant={var} | mode={mode}\n{'=' * 70}")
+                    _sp_emoji = {"roe_deer": "🦌", "moose": "🫎", "wild_boar": "🐗", "fallow_deer": "🦌"}.get(sp, "🌸")
+                    _var_emoji = "🔮" if var == "lag" else "📊"
+                    _mode_emoji = {"road": "🛣️", "rail": "🚂", "default": "🌍", "both": "🔀"}.get(mode, "✨")
+                    print(f"\n  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+                    print(f"  {_sp_emoji}  {sp_label.upper()}  |  {_var_emoji} variant={var}  |  {_mode_emoji} mode={mode}  {_sp_emoji}")
+                    print(f"  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
 
                     if var == "no_lag":
                         features_s = get_species_features_no_lag(sp)
@@ -516,7 +553,7 @@ def main(
                         features_s = get_species_features(sp)
 
                     df_var = df_mode.dropna(subset=features_s).copy()
-                    print(f"  shape={df_var.shape}, positive_rate={df_var['risk'].mean():.3f}")
+                    print(f"\n  💕 {len(df_var):,} cell-months  |  positive rate: {df_var['risk'].mean():.3f}  |  shape: {df_var.shape}  💕")
 
                     out_dir = species_output_dir / f"{sp}_{mode}_{var}"
                     out_dir.mkdir(parents=True, exist_ok=True)
@@ -642,11 +679,14 @@ def _build_argparser() -> "argparse.ArgumentParser":
                    help="Feature variant for per-species run. 'lag' = full 22-feature set "
                         "(default); 'no-lag' = 17-feature set without lag features; "
                         "'both' = run both variants.")
-    p.add_argument("--mode", type=str, default="road", dest="species_mode",
-                   choices=["road", "rail", "both"],
-                   help="Infrastructure mode filter for per-species run. 'road' = road cells "
-                        "only (default, current behaviour); 'rail' = cells with rail presence; "
-                        "'both' = run road and rail separately.")
+    p.add_argument("--mode", type=str, default="default", dest="species_mode",
+                   choices=["default", "road", "rail", "both", "all"],
+                   help="Infrastructure mode for per-species run (T10 — filters BOTH cells "
+                        "and target by infrastructure type). 'default' = any infrastructure "
+                        "cell + all collisions (most inclusive, default); 'road' = road cells "
+                        "+ road collisions only; 'rail' = rail cells + rail collisions only; "
+                        "'both' = run road and rail separately; 'all' = run default + road + "
+                        "rail (sweep everything in one invocation).")
     cache_grp = p.add_mutually_exclusive_group()
     cache_grp.add_argument("--use-cache", dest="use_cache", action="store_true", default=True,
                            help="Read parquet feature caches if present (default: True)")
@@ -660,8 +700,159 @@ def _build_argparser() -> "argparse.ArgumentParser":
     return p
 
 
+def _kawaii_pause(seconds: float = 1.5) -> None:
+    _time.sleep(seconds)
+
+
+def _kawaii_section_banner(title: str, emoji: str = "🌸") -> None:
+    print(f"\n  ╭─ ✿ ─ {emoji} ─ ✿ ─ ✿ ─ {emoji} ─ ✿ ─ ✿ ─ ✿ ─╮")
+    print(f"  │  ✨  {title}  ✨")
+    print(f"  ╰─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─╯\n")
+
+
+def _interactive_menu() -> tuple[str | None, str, str]:
+    """Interactive setup menu shown when the script is run without arguments.
+
+    Returns (species_filter, species_mode, species_variant) to pass to main().
+    Triggered when no CLI arguments are supplied (e.g. PyCharm run button).
+    """
+    # ── Welcome banner ────────────────────────────────────────────────
+    print("\n  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    print("  ✿  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ✿  ")
+    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    print("                                                                   ")
+    print("       🌸💖 ✧ W I L D L I F E   C O L L I S I O N ✧ 💖🌸          ")
+    print("       🌷✨ ✧     P R E D I C T I O N   ⋆ M O D E L     ✧ ✨🌷    ")
+    print("                                                                   ")
+    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    print()
+    print("        💕🐱  hello Amanda!! so happy you are here today!!  🐱💕  ")
+    print("        🌷✨  the moose are waiting and they are SO excited  ✨🌷  ")
+    print()
+    _kawaii_pause(1.0)
+
+    # ── Main menu ─────────────────────────────────────────────────────
+    _kawaii_section_banner("what shall we run today?? ✿(◕‿◕✿)", "🦄")
+    print("  [1] 🌈 Full sweep  — pooled + ALL per-species   (~55 min)  ← recommended!! 💖")
+    print("  [2] 🐱 Pooled only — original baseline          (~4 min)   ← quick & classic")
+    print("  [3] 🎀 Configure   — i choose my own adventure!!\n")
+
+    choice = input("  Choice [1]: ").strip() or "1"
+
+    if choice == "1":
+        print()
+        print("  ✨💖✨  OH WOW BEST CHOICE AMANDA!! the FULL SWEEP!! ✨💖✨")
+        print("  🌸  all four species!! all modes!! all variants!! every single combo!!  🌸")
+        print("  🦄  24 beautiful per-species models PLUS the pooled baseline!!  🦄")
+        print("  💕  this is going to be SPECTACULAR and we are SO proud of you  💕")
+        _kawaii_pause(2.0)
+        return "all", "all", "both"
+
+    if choice == "2":
+        print()
+        print("  🐱💕  a classic!! the original pooled pipeline!! timeless!! elegant!!  💕🐱")
+        print("  🌷  all four species together as ONE beautiful unified model  🌷")
+        print("  ✨  clean, fast, lovely — just like you!!  ✨")
+        _kawaii_pause(2.0)
+        return None, "default", "lag"
+
+    # ── Configure manually ────────────────────────────────────────────
+    print()
+    print("  🎀💕  ooh a custom adventure!! let us build your perfect run together!!  💕🎀")
+    print("  🌸  answer three tiny questions and we will make magic happen!!  🌸")
+    _kawaii_pause(1.5)
+
+    # Species
+    _kawaii_section_banner("step 1 of 3 — which species?? 🦌🐗", "🌿")
+    print("  [1] 🌈 All species   — everyone deserves love!!")
+    print("  [2] 🦌 Roe deer      — elegant and speedy!!")
+    print("  [3] 🫎 Moose         — the big majestic one!!")
+    print("  [4] 🐗 Wild boar     — chaotic and wonderful!!")
+    print("  [5] 🦌 Fallow deer   — fancy and fabulous!!\n")
+    sp = input("  Choice [1]: ").strip() or "1"
+    species = {"1": "all", "2": "roe_deer", "3": "moose", "4": "wild_boar", "5": "fallow_deer"}.get(sp, "all")
+    sp_label = {"all": "ALL SPECIES 🌈", "roe_deer": "roe deer 🦌", "moose": "moose 🫎",
+                "wild_boar": "wild boar 🐗", "fallow_deer": "fallow deer 🦌"}[species]
+    sp_hype = {
+        "all":        "ALL SPECIES!! every single one!! the full squad!! nobody left behind!! 🌈💖",
+        "roe_deer":   "roe deer!! so graceful!! so fast!! such tiny hooves!! 🦌✨",
+        "moose":      "MOOSE!! the icon!! the legend!! the big beautiful baby!! 🫎💕",
+        "wild_boar":  "wild boar!! chaotic energy!! absolute unit!! love the commitment!! 🐗🔥",
+        "fallow_deer":"fallow deer!! fancy spots!! very distinguished taste!! 🦌👑",
+    }[species]
+    print(f"\n  💕✨  {sp_hype}")
+    print(f"  🌸  {sp_label} locked in!! perfect choice!!  🌸")
+    _kawaii_pause(2.0)
+
+    # Mode
+    _kawaii_section_banner("step 2 of 3 — which infrastructure mode?? 🚂🛣️", "🌺")
+    print("  [1] 🌍 All collisions   — road + rail together, the whole picture!!")
+    print("  [2] 🛣️  Road only        — classic road WVC analysis!!")
+    print("  [3] 🚂 Rail only        — brave!! very niche!! we love the audacity!!")
+    print("  [4] 🔀 Both separately  — road AND rail, two analyses in one!!\n")
+    md = input("  Choice [1]: ").strip() or "1"
+    mode = {"1": "default", "2": "road", "3": "rail", "4": "both"}.get(md, "default")
+    mode_label = {"default": "ALL COLLISIONS 🌍", "road": "road only 🛣️",
+                  "rail": "rail only 🚂", "both": "road + rail separately 🔀"}[mode]
+    mode_hype = {
+        "default": "all collisions!! the full picture!! road AND rail together in beautiful harmony!! 🌍💕",
+        "road":    "road only!! the classic!! where it all started!! roads roads roads!! 🛣️✨",
+        "rail":    "RAIL ONLY!! so brave!! so specific!! the trains will not be ignored!! 🚂💖",
+        "both":    "BOTH modes separately!! twice the analysis!! twice the science!! double the moose!! 🔀🦄",
+    }[mode]
+    print(f"\n  💕✨  {mode_hype}")
+    print(f"  🌸  {mode_label} locked in!! outstanding decision!!  🌸")
+    _kawaii_pause(2.0)
+
+    # Variant
+    _kawaii_section_banner("step 3 of 3 — lag or no-lag?? 🔮📊", "💫")
+    print("  [1] 🔮 Lag      — forecast model   (uses last month's collisions as a hint!)")
+    print("  [2] 📊 No-lag   — determinants     (pure environmental features only!! very scientific!!)")
+    print("  [3] ✨ Both     — run both variants — maximum science!!\n")
+    vr = input("  Choice [1]: ").strip() or "1"
+    variant = {"1": "lag", "2": "no-lag", "3": "both"}.get(vr, "lag")
+    var_label = {"lag": "lag (forecast) 🔮", "no-lag": "no-lag (determinants) 📊", "both": "BOTH variants ✨"}[variant]
+    var_hype = {
+        "lag":    "lag features!! using the past to predict the future!! very time-series-pilled!! 🔮💕",
+        "no-lag": "no-lag!! pure environmental determinants!! what CAUSES the collisions?? very deep!! 📊🌿",
+        "both":   "BOTH variants!! the full comparison!! this IS the thesis contribution!! 🏆✨💖",
+    }[variant]
+    print(f"\n  💕✨  {var_hype}")
+    print(f"  🌸  {var_label} locked in!! you are NAILING this!!  🌸")
+    _kawaii_pause(2.0)
+
+    # Final confirmation before launch
+    print()
+    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    print(f"       🎀  CONFIGURATION COMPLETE!!  🎀")
+    print(f"       💖  species  : {sp_label}")
+    print(f"       💖  mode     : {mode_label}")
+    print(f"       💖  variant  : {var_label}")
+    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    _kawaii_pause(1.5)
+    return species, mode, variant
+
+
 if __name__ == "__main__":
-    args = _build_argparser().parse_args()
+    import sys
+
+    if len(sys.argv) == 1:
+        # No arguments — show interactive menu (PyCharm run button or bare python invocation)
+        _species, _mode, _variant = _interactive_menu()
+        args = _build_argparser().parse_args([])
+        args.species_filter = _species
+        args.species_mode = _mode
+        args.species_variant = _variant
+        # Launch fanfare
+        print()
+        print("  🚂💨💨  READY TO FIRE UP THE KAWAII TRAIN?!  💨💨🚂")
+        print("  🌸  CHUG CHUG CHUG CHUG CHUG CHUG CHUG CHUG!!  🌸")
+        print("  💖  here we GOOOOO Amanda hold on tight!!  💖")
+        print()
+        _kawaii_pause(2.0)
+    else:
+        args = _build_argparser().parse_args()
+
     main(
         data_dir=args.data_dir,
         parquet_cache_dir=args.parquet_cache_dir,
