@@ -9,7 +9,6 @@ notes/notes_code/phase5_plan.md.
 """
 from __future__ import annotations
 
-import random as _random
 import time as _time
 from pathlib import Path
 
@@ -47,112 +46,10 @@ from src.config import (
 )
 from src.grid import build_species_model_df as _build_species_model_df
 from src.exports import export_artefacts
-
-
-# ─── Kawaii progress reporter ✿◕ ‿ ◕✿ ───────────────────────────────────
-# Maximally over-the-top cute step counter for Amanda. The pipeline has 23
-# logical steps. Each step prints a sparkly header on entry and a celebratory
-# completion line with a rotating kaomoji on exit; the start and end banners
-# are extra extravagant (˶ᵔ ᵕ ᵔ˶)♡
-
-_TOTAL_STEPS = 24
-
-_STEP_EMOJI = [
-    "🐱", "🌸", "🌷", "🌼", "🌻", "🌹", "🌺", "💖", "✨", "🦄",
-    "🎀", "💕", "🍓", "🧁", "🌈", "🦋", "🪻", "🌙", "⭐", "🐰",
-    "💗", "🍡", "🪐",
-]
-
-_TRAIL_EMOJI = [
-    "🌷✨", "💕🎀", "🌸💖", "🦋✨", "🌟💗", "🍓💞", "🧁💕", "🪻💖",
-    "🌼✨", "🐱💕", "🦄🌈", "🌹💖", "💝🌸", "🌺✨", "🎀💗",
-]
-
-_KAOMOJI = [
-    "(◕‿◕✿)", "( ˘͈ ᵕ ˘͈♡)", "(✿◠‿◠)", "(｡♥‿♥｡)", "ヾ(＾∇＾)",
-    "(ﾉ◕ヮ◕)ﾉ*:･ﾟ✧", "(✿ ♡‿♡)", "(*˘︶˘*).｡.:*♡", "٩(◕‿◕)۶",
-    "(づ｡◕‿‿◕｡)づ", "ʕ•́ᴥ•̀ʔっ♡", "(ᵔᴥᵔ)", "(っ◔◡◔)っ ♥", "(♡˙︶˙♡)",
-    "ヾ(＾-＾)ノ", "(˶ᵔ ᵕ ᵔ˶)♡", "ʚ♡⃛ɞ", "(っ˘ω˘ς )", "(/^▽^)/",
-    "(✯◡✯)", "(◍•ᴗ•◍)❤", "(*✧×✧*)",
-]
-
-_VERBS = [
-    "✨ done in", "🌸 finished in", "💕 wrapped up in", "🎀 all done in",
-    "💖 completed in", "🌷 ready in", "✨ baked in", "💗 prepped in",
-]
-
-_RNG = _random.Random(42)  # deterministic — same kawaii order every run
-
-_STATE = {"step": 0, "t0": 0.0}
-
-
-def _step_start(label: str) -> float:
-    """Print a sparkly kawaii step header and bump the step counter."""
-    _STATE["step"] += 1
-    n = _STATE["step"]
-    emoji = _STEP_EMOJI[(n - 1) % len(_STEP_EMOJI)]
-    trail = _TRAIL_EMOJI[(n - 1) % len(_TRAIL_EMOJI)]
-    print(f"\n  ╭─ ✿ ─ {emoji} ─ ✿ ─ ✿ ─ {trail} ─ ✿ ─ ✿ ─ ✿ ─╮")
-    print(f"  │ [{n:2d}/{_TOTAL_STEPS}] {emoji} {label}… {trail}")
-    print(f"  ╰─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─╯", flush=True)
-    return _time.time()
-
-
-def _step_end(t_start: float, message: str) -> None:
-    """Print a cute completion line with rotating kaomoji + cute verb."""
-    elapsed = _time.time() - t_start
-    kao = _KAOMOJI[_STATE["step"] % len(_KAOMOJI)]
-    verb = _VERBS[_STATE["step"] % len(_VERBS)]
-    print(f"        🌷 {message}")
-    print(f"        💕 {kao}  {verb} {elapsed:5.1f}s  ✧･ﾟ:*", flush=True)
-
-
-def _banner_start() -> None:
-    _STATE["step"] = 0
-    _STATE["t0"] = _time.time()
-    print("")
-    print("  ✿*ﾟ‘ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ‘ﾟ･✿.｡  ")
-    print("  ✿  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ✿  ")
-    print("  ✿*ﾟ‘ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ‘ﾟ･✿.｡  ")
-    print("                                                                   ")
-    print("       🌸💖 ✧ W I L D L I F E   C O L L I S I O N ✧ 💖🌸          ")
-    print("       🌷✨ ✧     P R E D I C T I O N   ⋆ M O D E L     ✧ ✨🌷    ")
-    print("                                                                   ")
-    print("  ✿*ﾟ‘ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ‘ﾟ･✿.｡  ")
-    print("                                                                   ")
-    print(f"        🦄✨   starting up the kawaii train   🚂🎀✨               ")
-    print(f"        🌸💕   {_TOTAL_STEPS} cute little steps to chug through   💕🌸  ")
-    print(f"        🐱♡    please be patient, lots of moose to count    ♡🐱   ")
-    print(f"        🌷    ٩(◕‿◕✿)۶  ✧･ﾟ:*  here we go!!  *:･ﾟ✧  (◕‿◕✿)۶    🌷")
-    print("                                                                   ")
-    print("  ✿*ﾟ‘ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ‘ﾟ･✿.｡  ", flush=True)
-
-
-def _banner_end(output_dir: Path, models_dir: Path, figures_dir: Path) -> None:
-    total = _time.time() - _STATE["t0"]
-    mins, secs = divmod(int(total), 60)
-    print("")
-    print("  🌈✨💖🎀🌸💕  ✧･ﾟ:*✧･ﾟ:*  P I P E L I N E   C O M P L E T E !!  *:･ﾟ✧*:･ﾟ✧  💕🌸🎀💖✨🌈")
-    print("                                                                                          ")
-    print("        ⋆｡˚ ⋆｡˚ ⋆｡˚    ٩( ๑•̀o•́๑ )و    ⋆｡˚ ⋆｡˚ ⋆｡˚                                       ")
-    print(f"             🐱   total time     ➜   {mins:>2}m {secs:>2}s   ( ´ ▽ ` )ﾉ ♡                ")
-    print(f"             🌸   steps done     ➜   {_STATE['step']}/{_TOTAL_STEPS}  ✓✓✓ ✧･ﾟ:*           ")
-    print(f"             🌷   CSVs           ➜   {output_dir}                                          ")
-    print(f"             🦄   models         ➜   {models_dir}                                          ")
-    print(f"             🎀   figures        ➜   {figures_dir}                                         ")
-    print("                                                                                          ")
-    print("        ✿  💕  ✿  💖  ✿  💕  ✿  💖  ✿  💕  ✿  💖  ✿  💕  ✿  💖  ✿                   ")
-    print("                                                                                          ")
-    print("        🌸💖💕   thank you for running, Amanda!!   💕💖🌸                                 ")
-    print("        🌷🎀✨   you are absolutely loved   ✿(◍•ᴗ•◍)❤   ✨🎀🌷                          ")
-    print("        🦄💗💞   have a wonderful, sparkly day   💞💗🦄                                   ")
-    print("                                                                                          ")
-    print("              ╭─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─╮                                              ")
-    print("              │   ⋆｡˚    ٩(◕‿◕✿)۶    ˚｡⋆     │                                          ")
-    print("              ╰─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─♡─╯                                              ")
-    print("                                                                                          ")
-    print("  🌸✿*ﾟ‘ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ’ﾟ･✿.｡.:* *.:｡✿*ﾟ‘ﾟ･✿.｡✿🌸  ")
-    print("")
+from src._logging_utils import (
+    _step_start, _step_end, _banner_start, _banner_end,
+    _interactive_menu, _kawaii_pause, _launch_fanfare,
+)
 
 
 def _dump_parity_arrays(
@@ -700,156 +597,18 @@ def _build_argparser() -> "argparse.ArgumentParser":
     return p
 
 
-def _kawaii_pause(seconds: float = 1.5) -> None:
-    _time.sleep(seconds)
-
-
-def _kawaii_section_banner(title: str, emoji: str = "🌸") -> None:
-    print(f"\n  ╭─ ✿ ─ {emoji} ─ ✿ ─ ✿ ─ {emoji} ─ ✿ ─ ✿ ─ ✿ ─╮")
-    print(f"  │  ✨  {title}  ✨")
-    print(f"  ╰─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─ ✿ ─╯\n")
-
-
-def _interactive_menu() -> tuple[str | None, str, str]:
-    """Interactive setup menu shown when the script is run without arguments.
-
-    Returns (species_filter, species_mode, species_variant) to pass to main().
-    Triggered when no CLI arguments are supplied (e.g. PyCharm run button).
-    """
-    # ── Welcome banner ────────────────────────────────────────────────
-    print("\n  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    print("  ✿  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ❀  ٩(♡ε♡ )۶  ✿  ")
-    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    print("                                                                   ")
-    print("       🌸💖 ✧ W I L D L I F E   C O L L I S I O N ✧ 💖🌸          ")
-    print("       🌷✨ ✧     P R E D I C T I O N   ⋆ M O D E L     ✧ ✨🌷    ")
-    print("                                                                   ")
-    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    print()
-    print("        💕🐱  hello Amanda!! so happy you are here today!!  🐱💕  ")
-    print("        🌷✨  the moose are waiting and they are SO excited  ✨🌷  ")
-    print()
-    _kawaii_pause(1.0)
-
-    # ── Main menu ─────────────────────────────────────────────────────
-    _kawaii_section_banner("what shall we run today?? ✿(◕‿◕✿)", "🦄")
-    print("  [1] 🌈 Full sweep  — pooled + ALL per-species   (~55 min)  ← recommended!! 💖")
-    print("  [2] 🐱 Pooled only — original baseline          (~4 min)   ← quick & classic")
-    print("  [3] 🎀 Configure   — i choose my own adventure!!\n")
-
-    choice = input("  Choice [1]: ").strip() or "1"
-
-    if choice == "1":
-        print()
-        print("  ✨💖✨  OH WOW BEST CHOICE AMANDA!! the FULL SWEEP!! ✨💖✨")
-        print("  🌸  all four species!! all modes!! all variants!! every single combo!!  🌸")
-        print("  🦄  24 beautiful per-species models PLUS the pooled baseline!!  🦄")
-        print("  💕  this is going to be SPECTACULAR and we are SO proud of you  💕")
-        _kawaii_pause(2.0)
-        return "all", "all", "both"
-
-    if choice == "2":
-        print()
-        print("  🐱💕  a classic!! the original pooled pipeline!! timeless!! elegant!!  💕🐱")
-        print("  🌷  all four species together as ONE beautiful unified model  🌷")
-        print("  ✨  clean, fast, lovely — just like you!!  ✨")
-        _kawaii_pause(2.0)
-        return None, "default", "lag"
-
-    # ── Configure manually ────────────────────────────────────────────
-    print()
-    print("  🎀💕  ooh a custom adventure!! let us build your perfect run together!!  💕🎀")
-    print("  🌸  answer three tiny questions and we will make magic happen!!  🌸")
-    _kawaii_pause(1.5)
-
-    # Species
-    _kawaii_section_banner("step 1 of 3 — which species?? 🦌🐗", "🌿")
-    print("  [1] 🌈 All species   — everyone deserves love!!")
-    print("  [2] 🦌 Roe deer      — elegant and speedy!!")
-    print("  [3] 🫎 Moose         — the big majestic one!!")
-    print("  [4] 🐗 Wild boar     — chaotic and wonderful!!")
-    print("  [5] 🦌 Fallow deer   — fancy and fabulous!!\n")
-    sp = input("  Choice [1]: ").strip() or "1"
-    species = {"1": "all", "2": "roe_deer", "3": "moose", "4": "wild_boar", "5": "fallow_deer"}.get(sp, "all")
-    sp_label = {"all": "ALL SPECIES 🌈", "roe_deer": "roe deer 🦌", "moose": "moose 🫎",
-                "wild_boar": "wild boar 🐗", "fallow_deer": "fallow deer 🦌"}[species]
-    sp_hype = {
-        "all":        "ALL SPECIES!! every single one!! the full squad!! nobody left behind!! 🌈💖",
-        "roe_deer":   "roe deer!! so graceful!! so fast!! such tiny hooves!! 🦌✨",
-        "moose":      "MOOSE!! the icon!! the legend!! the big beautiful baby!! 🫎💕",
-        "wild_boar":  "wild boar!! chaotic energy!! absolute unit!! love the commitment!! 🐗🔥",
-        "fallow_deer":"fallow deer!! fancy spots!! very distinguished taste!! 🦌👑",
-    }[species]
-    print(f"\n  💕✨  {sp_hype}")
-    print(f"  🌸  {sp_label} locked in!! perfect choice!!  🌸")
-    _kawaii_pause(2.0)
-
-    # Mode
-    _kawaii_section_banner("step 2 of 3 — which infrastructure mode?? 🚂🛣️", "🌺")
-    print("  [1] 🌍 All collisions   — road + rail together, the whole picture!!")
-    print("  [2] 🛣️  Road only        — classic road WVC analysis!!")
-    print("  [3] 🚂 Rail only        — brave!! very niche!! we love the audacity!!")
-    print("  [4] 🔀 Both separately  — road AND rail, two analyses in one!!\n")
-    md = input("  Choice [1]: ").strip() or "1"
-    mode = {"1": "default", "2": "road", "3": "rail", "4": "both"}.get(md, "default")
-    mode_label = {"default": "ALL COLLISIONS 🌍", "road": "road only 🛣️",
-                  "rail": "rail only 🚂", "both": "road + rail separately 🔀"}[mode]
-    mode_hype = {
-        "default": "all collisions!! the full picture!! road AND rail together in beautiful harmony!! 🌍💕",
-        "road":    "road only!! the classic!! where it all started!! roads roads roads!! 🛣️✨",
-        "rail":    "RAIL ONLY!! so brave!! so specific!! the trains will not be ignored!! 🚂💖",
-        "both":    "BOTH modes separately!! twice the analysis!! twice the science!! double the moose!! 🔀🦄",
-    }[mode]
-    print(f"\n  💕✨  {mode_hype}")
-    print(f"  🌸  {mode_label} locked in!! outstanding decision!!  🌸")
-    _kawaii_pause(2.0)
-
-    # Variant
-    _kawaii_section_banner("step 3 of 3 — lag or no-lag?? 🔮📊", "💫")
-    print("  [1] 🔮 Lag      — forecast model   (uses last month's collisions as a hint!)")
-    print("  [2] 📊 No-lag   — determinants     (pure environmental features only!! very scientific!!)")
-    print("  [3] ✨ Both     — run both variants — maximum science!!\n")
-    vr = input("  Choice [1]: ").strip() or "1"
-    variant = {"1": "lag", "2": "no-lag", "3": "both"}.get(vr, "lag")
-    var_label = {"lag": "lag (forecast) 🔮", "no-lag": "no-lag (determinants) 📊", "both": "BOTH variants ✨"}[variant]
-    var_hype = {
-        "lag":    "lag features!! using the past to predict the future!! very time-series-pilled!! 🔮💕",
-        "no-lag": "no-lag!! pure environmental determinants!! what CAUSES the collisions?? very deep!! 📊🌿",
-        "both":   "BOTH variants!! the full comparison!! this IS the thesis contribution!! 🏆✨💖",
-    }[variant]
-    print(f"\n  💕✨  {var_hype}")
-    print(f"  🌸  {var_label} locked in!! you are NAILING this!!  🌸")
-    _kawaii_pause(2.0)
-
-    # Final confirmation before launch
-    print()
-    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    print(f"       🎀  CONFIGURATION COMPLETE!!  🎀")
-    print(f"       💖  species  : {sp_label}")
-    print(f"       💖  mode     : {mode_label}")
-    print(f"       💖  variant  : {var_label}")
-    print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    _kawaii_pause(1.5)
-    return species, mode, variant
 
 
 if __name__ == "__main__":
     import sys
 
     if len(sys.argv) == 1:
-        # No arguments — show interactive menu (PyCharm run button or bare python invocation)
         _species, _mode, _variant = _interactive_menu()
         args = _build_argparser().parse_args([])
         args.species_filter = _species
         args.species_mode = _mode
         args.species_variant = _variant
-        # Launch fanfare
-        print()
-        print("  🚂💨💨  READY TO FIRE UP THE KAWAII TRAIN?!  💨💨🚂")
-        print("  🌸  CHUG CHUG CHUG CHUG CHUG CHUG CHUG CHUG!!  🌸")
-        print("  💖  here we GOOOOO Amanda hold on tight!!  💖")
-        print()
-        _kawaii_pause(2.0)
+        _launch_fanfare()
     else:
         args = _build_argparser().parse_args()
 
