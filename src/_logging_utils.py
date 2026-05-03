@@ -48,12 +48,17 @@ def _step_start(label: str) -> float:
     return _time.time()
 
 
+_MIN_STEP_DISPLAY = 2.0  # minimum seconds each step stays visible
+
 def _step_end(t_start: float, message: str) -> None:
     elapsed = _time.time() - t_start
     kao = _KAOMOJI[_STATE["step"] % len(_KAOMOJI)]
     verb = _VERBS[_STATE["step"] % len(_VERBS)]
     print(f"        🌷 {message}")
     print(f"        💕 {kao}  {verb} {elapsed:5.1f}s  ✧･ﾟ:*", flush=True)
+    remaining = _MIN_STEP_DISPLAY - elapsed
+    if remaining > 0:
+        _time.sleep(remaining)
 
 
 def _banner_start() -> None:
@@ -100,7 +105,7 @@ def _banner_end(output_dir: Path, models_dir: Path, figures_dir: Path) -> None:
     print("")
 
 
-def _kawaii_pause(seconds: float = 1.5) -> None:
+def _kawaii_pause(seconds: float = 2.0) -> None:
     _time.sleep(seconds)
 
 
@@ -127,7 +132,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     print()
     print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ", flush=True)
     print()
-    _kawaii_pause(8.5)
+    _kawaii_pause(10.0)
 
     _kawaii_section_banner("what shall we run today?? ✿(◕‿◕✿)", "🦄")
     print("  [1] 🌈 Full sweep  — pooled + ALL per-species   (~55 min)  ← recommended!! 💖")
@@ -156,7 +161,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     print()
     print("  🎀💕  ooh a custom adventure!! let us build your perfect run together!!  💕🎀")
     print("  🌸  answer three tiny questions and we will make magic happen!!  🌸")
-    _kawaii_pause(1.5)
+    _kawaii_pause(2.0)
 
     _kawaii_section_banner("step 1 of 3 — which species?? 🦌🐗", "🌿")
     print("  [1] 🌈 All species   — everyone deserves love!!")
@@ -221,7 +226,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     print(f"       💖  mode     : {mode_label}")
     print(f"       💖  variant  : {var_label}")
     print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-    _kawaii_pause(1.5)
+    _kawaii_pause(2.0)
     return species, mode, variant
 
 
