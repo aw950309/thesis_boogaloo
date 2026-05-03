@@ -142,6 +142,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
     choice = input("  Choice [1]: ").strip() or "1"
 
     if choice == "1":
+        _kawaii_pause(2.0)
         print()
         print("  ✨💖✨  OH WOW BEST CHOICE AMANDA!! the FULL SWEEP!! ✨💖✨")
         print("  🌸  all four species!! all modes!! all variants!! every single combo!!  🌸")
@@ -151,6 +152,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         return "all", "all", "both"
 
     if choice == "2":
+        _kawaii_pause(2.0)
         print()
         print("  🐱💕  a classic!! the original pooled pipeline!! timeless!! elegant!!  💕🐱")
         print("  🌷  all four species together as ONE beautiful unified model  🌷")
@@ -158,6 +160,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         _kawaii_pause(2.0)
         return None, "default", "lag"
 
+    _kawaii_pause(2.0)
     print()
     print("  🎀💕  ooh a custom adventure!! let us build your perfect run together!!  💕🎀")
     print("  🌸  answer three tiny questions and we will make magic happen!!  🌸")
@@ -180,6 +183,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         "wild_boar":   "wild boar!! chaotic energy!! absolute unit!! love the commitment!! 🐗🔥",
         "fallow_deer": "fallow deer!! fancy spots!! very distinguished taste!! 🦌👑",
     }[species]
+    _kawaii_pause(2.0)
     print(f"\n  💕✨  {sp_hype}")
     print(f"  🌸  {sp_label} locked in!! perfect choice!!  🌸")
     _kawaii_pause(2.0)
@@ -199,6 +203,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         "rail":    "RAIL ONLY!! so brave!! so specific!! the trains will not be ignored!! 🚂💖",
         "both":    "BOTH modes separately!! twice the analysis!! twice the science!! double the moose!! 🔀🦄",
     }[mode]
+    _kawaii_pause(2.0)
     print(f"\n  💕✨  {mode_hype}")
     print(f"  🌸  {mode_label} locked in!! outstanding decision!!  🌸")
     _kawaii_pause(2.0)
@@ -215,6 +220,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         "no-lag": "no-lag!! pure environmental determinants!! what CAUSES the collisions?? very deep!! 📊🌿",
         "both":   "BOTH variants!! the full comparison!! this IS the thesis contribution!! 🏆✨💖",
     }[variant]
+    _kawaii_pause(2.0)
     print(f"\n  💕✨  {var_hype}")
     print(f"  🌸  {var_label} locked in!! you are NAILING this!!  🌸")
     _kawaii_pause(2.0)
