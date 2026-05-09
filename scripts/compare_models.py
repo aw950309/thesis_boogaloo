@@ -2,6 +2,11 @@
 """Paired RF vs LR AUC tests across the 24 species-mode-variant combinations.
 
 Run from code/: .venv/bin/python scripts/compare_models.py
+
+Detects both outputs/per_species/ (monthly folds) and outputs_year/per_species/
+(yearly folds) and runs the comparison for every fold strategy that has its
+sweep present. Results land in each tree separately (per-tree
+``model_comparison.csv``).
 """
 
 from __future__ import annotations
@@ -22,6 +27,34 @@ MODES = ["default", "road", "rail"]
 VARIANTS = ["lag", "no_lag"]
 
 COMBINATIONS = [(s, m, v) for s in SPECIES for m in MODES for v in VARIANTS]
+
+
+def _candidate_trees(repo_root: Path) -> list[tuple[str, Path]]:
+    """List the (label, per_species_dir) trees we know how to compare.
+
+    Returns every candidate even if the directory does not exist; the caller
+    decides what to do with missing trees. Order is canonical: monthly first,
+    then yearly.
+    """
+    return [
+        ("monthly folds", repo_root / "outputs" / "per_species"),
+        ("yearly folds",  repo_root / "outputs_year" / "per_species"),
+    ]
+
+
+def _is_complete(per_species_dir: Path) -> tuple[bool, list[str]]:
+    """Verify that every (species, mode, variant) cv_results CSV is present.
+
+    Returns (True, []) if complete, otherwise (False, [missing relative paths]).
+    """
+    missing: list[str] = []
+    if not per_species_dir.exists():
+        return False, ["<directory absent>"]
+    for species, mode, variant in COMBINATIONS:
+        rel = f"{species}_{mode}_{variant}/cv_results_{species}.csv"
+        if not (per_species_dir / rel).exists():
+            missing.append(rel)
+    return (not missing), missing
 
 
 def load_cv_results(base_dir: Path, species: str, mode: str, variant: str) -> pd.DataFrame:
@@ -182,12 +215,239 @@ def print_binomial_table(binomial_results):
     print("* p < 0.05")
 
 
-def main():
-    here = Path(__file__).parent.parent
-    per_species_dir = here / "outputs" / "per_species"
+def _load_comparison(csv_path: Path) -> pd.DataFrame:
+    """Load a model_comparison.csv and index it by (species, mode, variant)."""
+    return (
+        pd.read_csv(csv_path)
+        .set_index(["species", "mode", "variant"])
+        .sort_index()
+    )
 
-    print(f"scipy {scipy.__version__}  statsmodels {statsmodels.__version__}")
+
+def _build_aggregate_table(diff: pd.DataFrame) -> list[str]:
+    """Markdown aggregate table comparing the two fold strategies."""
+    n_combos = len(diff)
+    rf_wins_m = int(diff["rf_wins_m"].fillna(False).astype(bool).sum())
+    rf_wins_y = int(diff["rf_wins_y"].fillna(False).astype(bool).sum())
+    sig_rf_m = int(((diff["mean_delta_m"] > 0) & (diff["fdr_p_m"] < 0.05)).sum())
+    sig_rf_y = int(((diff["mean_delta_y"] > 0) & (diff["fdr_p_y"] < 0.05)).sum())
+    sig_lr_m = int(((diff["mean_delta_m"] < 0) & (diff["fdr_p_m"] < 0.05)).sum())
+    sig_lr_y = int(((diff["mean_delta_y"] < 0) & (diff["fdr_p_y"] < 0.05)).sum())
+    direction_changes = int(diff["direction_change"].fillna(False).astype(bool).sum())
+    sig_changes = int(diff["sig_change"].fillna(False).astype(bool).sum())
+    mean_abs_m = float(diff["mean_delta_m"].abs().mean())
+    mean_abs_y = float(diff["mean_delta_y"].abs().mean())
+    median_n_m = int(diff["n_m"].median()) if diff["n_m"].notna().any() else 0
+    median_n_y = int(diff["n_y"].median()) if diff["n_y"].notna().any() else 0
+
+    rows = [
+        ("Combinations",                            f"{n_combos}",            f"{n_combos}",            "0"),
+        ("Median folds per combination",            f"{median_n_m}",          f"{median_n_y}",          f"{median_n_y - median_n_m:+d}"),
+        ("RF wins (mean_delta > 0)",                f"{rf_wins_m} / {n_combos}", f"{rf_wins_y} / {n_combos}", f"{rf_wins_y - rf_wins_m:+d}"),
+        ("FDR-significant RF wins (p<0.05)",        f"{sig_rf_m} / {n_combos}", f"{sig_rf_y} / {n_combos}", f"{sig_rf_y - sig_rf_m:+d}"),
+        ("FDR-significant LR wins (p<0.05)",        f"{sig_lr_m} / {n_combos}", f"{sig_lr_y} / {n_combos}", f"{sig_lr_y - sig_lr_m:+d}"),
+        ("Direction changes (RF↔LR)",               "—",                       "—",                       f"{direction_changes}"),
+        ("Significance changes (sig↔non-sig)",      "—",                       "—",                       f"{sig_changes}"),
+        ("Mean |ΔAUC| across combinations",         f"{mean_abs_m:.4f}",      f"{mean_abs_y:.4f}",      f"{mean_abs_y - mean_abs_m:+.4f}"),
+    ]
+    out = [
+        "| metric | monthly | yearly | Δ (yearly − monthly) |",
+        "|--------|---------|--------|----------------------|",
+    ]
+    for r in rows:
+        out.append(f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} |")
+    return out
+
+
+def _build_side_by_side_table(diff: pd.DataFrame) -> list[str]:
+    """Markdown per-combination side-by-side table (one row per species/mode/variant)."""
+    headers = [
+        "species", "mode", "variant",
+        "n_m", "mean_Δ_m", "fdr_p_m",
+        "n_y", "mean_Δ_y", "fdr_p_y",
+        "Δ_diff", "direction", "sig",
+    ]
+    out = ["| " + " | ".join(headers) + " |",
+           "|" + "|".join(["---"] * len(headers)) + "|"]
+    for (sp, mode, var), row in diff.iterrows():
+        n_m   = "" if pd.isna(row.get("n_m"))            else f"{int(row['n_m'])}"
+        n_y   = "" if pd.isna(row.get("n_y"))            else f"{int(row['n_y'])}"
+        md_m  = "" if pd.isna(row.get("mean_delta_m"))   else f"{row['mean_delta_m']:+.4f}"
+        md_y  = "" if pd.isna(row.get("mean_delta_y"))   else f"{row['mean_delta_y']:+.4f}"
+        fp_m  = "" if pd.isna(row.get("fdr_p_m"))        else f"{row['fdr_p_m']:.4f}"
+        fp_y  = "" if pd.isna(row.get("fdr_p_y"))        else f"{row['fdr_p_y']:.4f}"
+        dd    = "" if pd.isna(row.get("delta_mean_delta")) else f"{row['delta_mean_delta']:+.4f}"
+        if pd.isna(row.get("direction_change")):
+            direction = ""
+        else:
+            direction = "FLIPPED" if bool(row["direction_change"]) else "same"
+        if pd.isna(row.get("sig_change")):
+            sig = ""
+        elif bool(row["sig_change"]):
+            sig = f"FLIPPED ({'sig' if row['sig_m'] else 'ns'} → {'sig' if row['sig_y'] else 'ns'})"
+        else:
+            sig = "sig" if bool(row.get("sig_m", False)) else "ns"
+        out.append(
+            f"| {sp} | {mode} | {var} | {n_m} | {md_m} | {fp_m} | {n_y} | {md_y} | {fp_y} | {dd} | {direction} | {sig} |"
+        )
+    return out
+
+
+def _build_notable_changes(diff: pd.DataFrame, threshold: float = 0.02) -> list[str]:
+    """Markdown bullet list of combinations with direction flip, sig flip, or |Δ_diff| > threshold."""
+    notable_mask = (
+        diff["direction_change"].fillna(False).astype(bool)
+        | diff["sig_change"].fillna(False).astype(bool)
+        | (diff["delta_mean_delta"].abs() > threshold)
+    )
+    notable = diff[notable_mask]
+
+    if len(notable) == 0:
+        return [
+            f"_None — every combination keeps the same RF↔LR direction, the same significance flag, "
+            f"and |Δ_diff| ≤ {threshold:.2f} AUC across the two fold strategies._"
+        ]
+
+    out = [
+        f"_{len(notable)} combination(s) flagged: direction flip, significance flip, "
+        f"or |Δ_diff| > {threshold:.2f} AUC._",
+        "",
+    ]
+    for (sp, mode, var), row in notable.iterrows():
+        flags = []
+        if bool(row.get("direction_change", False)):
+            m_winner = "RF" if bool(row["rf_wins_m"]) else "LR"
+            y_winner = "RF" if bool(row["rf_wins_y"]) else "LR"
+            flags.append(f"direction flip (monthly → {m_winner}; yearly → {y_winner})")
+        if bool(row.get("sig_change", False)):
+            m_sig = "sig" if bool(row.get("sig_m", False)) else "ns"
+            y_sig = "sig" if bool(row.get("sig_y", False)) else "ns"
+            flags.append(f"significance flip (monthly {m_sig} → yearly {y_sig})")
+        dd = row.get("delta_mean_delta")
+        if pd.notna(dd) and abs(dd) > threshold:
+            flags.append(f"|Δ_diff| = {dd:+.4f} AUC")
+        out.append(f"- **{sp} / {mode} / {var}** — {'; '.join(flags)}")
+    return out
+
+
+def _write_difference_report(repo_root: Path) -> bool:
+    """Write monthly_vs_yearly_diff.{md,csv} into both per_species trees.
+
+    Returns True if the report was written, False if either tree's
+    model_comparison.csv was missing.
+    """
+    monthly_dir = repo_root / "outputs" / "per_species"
+    yearly_dir  = repo_root / "outputs_year" / "per_species"
+    monthly_csv = monthly_dir / "model_comparison.csv"
+    yearly_csv  = yearly_dir  / "model_comparison.csv"
+
+    bar = "═" * 78
+    print(bar)
+    print("  MONTHLY vs YEARLY DIFF  ➜  side-by-side comparison")
+    print(bar)
+
+    if not monthly_csv.exists() or not yearly_csv.exists():
+        missing = [p for p in (monthly_csv, yearly_csv) if not p.exists()]
+        for p in missing:
+            print(f"  (skipping diff report — {p.relative_to(repo_root)} not present yet)")
+        print()
+        return False
+
+    m = _load_comparison(monthly_csv)
+    y = _load_comparison(yearly_csv)
+
+    keep_cols = ["n", "mean_delta", "ci_lo", "ci_hi", "fdr_p", "rf_wins"]
+    diff = (
+        m[keep_cols].add_suffix("_m")
+        .join(y[keep_cols].add_suffix("_y"), how="outer")
+    )
+    diff["delta_mean_delta"] = diff["mean_delta_y"] - diff["mean_delta_m"]
+    diff["direction_change"] = (
+        diff["rf_wins_m"].astype("boolean") != diff["rf_wins_y"].astype("boolean")
+    )
+    diff["sig_m"] = diff["fdr_p_m"] < 0.05
+    diff["sig_y"] = diff["fdr_p_y"] < 0.05
+    diff["sig_change"] = diff["sig_m"] != diff["sig_y"]
+    diff = diff.sort_index()
+
+    agg_lines = _build_aggregate_table(diff)
+    table_lines = _build_side_by_side_table(diff)
+    notable_lines = _build_notable_changes(diff)
+
+    md_lines: list[str] = []
+    md_lines.append("# Monthly vs yearly fold comparison")
+    md_lines.append("")
+    md_lines.append("Auto-generated by `scripts/compare_models.py`. Compares paired RF-vs-LR")
+    md_lines.append("statistics from the monthly-fold sweep (`outputs/per_species/`) against the")
+    md_lines.append("yearly-fold sweep (`outputs_year/per_species/`).")
+    md_lines.append("")
+    md_lines.append("Column key:")
+    md_lines.append("")
+    md_lines.append("- `n_m`, `n_y` — number of folds for that combination (monthly / yearly).")
+    md_lines.append("- `mean_Δ_m`, `mean_Δ_y` — fold-averaged `(RF AUC − LR AUC)`. Positive ⇒ RF wins.")
+    md_lines.append("- `fdr_p_m`, `fdr_p_y` — Wilcoxon p-value with Benjamini–Hochberg FDR correction at α=0.05.")
+    md_lines.append("- `Δ_diff` — `mean_Δ_y − mean_Δ_m`; how much yearly disagrees with monthly.")
+    md_lines.append("- `direction` — `FLIPPED` if RF wins under one strategy and LR under the other.")
+    md_lines.append("- `sig` — `sig` / `ns` under monthly, `FLIPPED` if the FDR significance disagrees.")
+    md_lines.append("")
+    md_lines.append("## Aggregate")
+    md_lines.append("")
+    md_lines.extend(agg_lines)
+    md_lines.append("")
+    md_lines.append("## Per-combination side-by-side")
+    md_lines.append("")
+    md_lines.extend(table_lines)
+    md_lines.append("")
+    md_lines.append("## Notable changes")
+    md_lines.append("")
+    md_lines.extend(notable_lines)
+    md_lines.append("")
+
+    md_text = "\n".join(md_lines)
+    csv_diff = diff.reset_index()
+
+    written: list[Path] = []
+    for tree_dir in (monthly_dir, yearly_dir):
+        md_path  = tree_dir / "monthly_vs_yearly_diff.md"
+        csv_path = tree_dir / "monthly_vs_yearly_diff.csv"
+        md_path.write_text(md_text, encoding="utf-8")
+        csv_diff.to_csv(csv_path, index=False, float_format="%.6f")
+        written.extend([md_path, csv_path])
+
+    # Terminal summary
+    for line in agg_lines:
+        print(f"  {line}")
     print()
+    for line in notable_lines:
+        print(f"  {line}")
+    print()
+    print("  written:")
+    for p in written:
+        print(f"    {p.relative_to(repo_root)}")
+    print()
+    return True
+
+
+def _run_for_tree(label: str, per_species_dir: Path) -> bool:
+    """Run the paired-stats + binomial comparison for one fold-strategy tree.
+
+    Returns True if the comparison ran, False if the tree was skipped (absent
+    or incomplete).
+    """
+    ok, missing = _is_complete(per_species_dir)
+    rel = per_species_dir.relative_to(per_species_dir.parent.parent)
+    bar = "═" * 78
+    print(bar)
+    print(f"  {label.upper()}  ➜  {rel}")
+    print(bar)
+
+    if not ok:
+        if missing == ["<directory absent>"]:
+            print(f"  (skipping — {rel} does not exist; run the per-species sweep first)")
+        else:
+            print(f"  (skipping — {len(missing)} cv_results CSV(s) missing under {rel}, e.g. {missing[0]})")
+        print()
+        return False
 
     rows, binomial_results = compute_all(per_species_dir)
 
@@ -195,8 +455,9 @@ def main():
                 "mean_delta", "sd_delta", "se_delta",
                 "ci_lo", "ci_hi", "zero_in_ci",
                 "ttest_p", "wilcoxon_p", "bonf_p", "fdr_p", "rf_wins"]
+    out_csv = per_species_dir / "model_comparison.csv"
     pd.DataFrame(rows)[csv_cols].to_csv(
-        per_species_dir / "model_comparison.csv", index=False, float_format="%.6f"
+        out_csv, index=False, float_format="%.6f"
     )
 
     print("paired delta AUC (RF - LR)")
@@ -207,7 +468,31 @@ def main():
     print()
     print_binomial_table(binomial_results)
     print()
-    print("CSV: outputs/per_species/model_comparison.csv")
+    print(f"CSV: {out_csv.relative_to(per_species_dir.parent.parent)}")
+    print()
+    return True
+
+
+def main():
+    here = Path(__file__).parent.parent
+
+    print(f"scipy {scipy.__version__}  statsmodels {statsmodels.__version__}")
+    print()
+
+    trees = _candidate_trees(here)
+    ran_any = False
+    for label, per_species_dir in trees:
+        ran_any = _run_for_tree(label, per_species_dir) or ran_any
+
+    if not ran_any:
+        print("No fold-strategy tree had a complete sweep. Run scripts/train_final_model.py "
+              "with --fold-unit month and/or --fold-unit year (or 'both') to populate "
+              "outputs/per_species/ or outputs_year/per_species/ first.")
+        sys.exit(1)
+
+    # Diff report runs only after both per-tree model_comparison.csv files exist —
+    # i.e. after a 'both' run, or after a monthly run followed by a yearly run.
+    _write_difference_report(here)
 
 
 if __name__ == "__main__":

@@ -55,6 +55,56 @@ from src._logging_utils import (
 )
 
 
+def _resolve_fold_units(fold_unit: str) -> list[str]:
+    """Map the user-facing fold_unit value to the list of strategies to run."""
+    if fold_unit == "both":
+        return ["month", "year"]
+    if fold_unit in ("month", "year"):
+        return [fold_unit]
+    raise ValueError(f"Unknown fold_unit: {fold_unit!r}")
+
+
+def _fold_unit_paths(
+    fold_unit: str,
+    *,
+    month_output_dir: Path,
+    month_models_dir: Path,
+    month_figures_dir: Path,
+    repo_root: Path,
+) -> dict:
+    """Per-fold-unit output directories.
+
+    Monthly folds keep the existing tree (data/processed, outputs/figures,
+    outputs/models, outputs/per_species) — that is what ``--output-dir`` etc.
+    customise. Yearly folds always live under ``outputs_year/`` (parallel to
+    ``outputs/``) so they never collide with the monthly artefacts.
+    """
+    if fold_unit == "month":
+        return {
+            "output_dir":         month_output_dir,
+            "models_dir":         month_models_dir,
+            "figures_dir":        month_figures_dir,
+            "species_output_dir": repo_root / "outputs" / "per_species",
+        }
+    if fold_unit == "year":
+        return {
+            "output_dir":         repo_root / "outputs_year" / "processed",
+            "models_dir":         repo_root / "outputs_year" / "models",
+            "figures_dir":        repo_root / "outputs_year" / "figures",
+            "species_output_dir": repo_root / "outputs_year" / "per_species",
+        }
+    raise ValueError(f"Unknown fold_unit: {fold_unit!r}")
+
+
+def _build_splits_for_fold_unit(fold_unit: str, months) -> list[tuple[list, list]]:
+    """Dispatch to the monthly or yearly expanding-window splitter."""
+    if fold_unit == "month":
+        return models.make_expanding_time_splits(months, min_train_months=12, test_horizon=1)
+    if fold_unit == "year":
+        return models.make_expanding_year_splits(months, min_train_years=1, test_horizon=1)
+    raise ValueError(f"Unknown fold_unit: {fold_unit!r}")
+
+
 def _dump_parity_arrays(
     dump_dir: Path,
     *,
@@ -118,6 +168,289 @@ def _dump_parity_arrays(
     print(f"        📋 parity arrays written to {arrays_dir}", flush=True)
 
 
+def _run_modelling_for_fold_unit(
+    fold_unit: str,
+    *,
+    model_df_clean: pd.DataFrame,
+    joined,
+    grid_full,
+    hyperparameters: dict,
+    species_filter: str | None,
+    species_variant: str,
+    species_mode: str,
+    output_dir: Path,
+    models_dir: Path,
+    figures_dir: Path,
+    species_output_dir: Path,
+    dump_parity_arrays: Path | None,
+) -> None:
+    """Run pooled CV + final fit + viz + per-species sweep for one fold strategy.
+
+    Bands F–H plus the optional per-species sweep all live here. The orchestrator
+    invokes this once per fold strategy ("month" or "year"); a "both" run loops
+    over both, with each fold strategy writing into its own output tree.
+    """
+    label = "monthly" if fold_unit == "month" else "yearly"
+    fu_emoji = "📆" if fold_unit == "month" else "🗓️"
+    print()
+    print(f"  ✿*ﾟ'ﾟ･✿.｡.:* {fu_emoji} fold strategy: {label} folds {fu_emoji} *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+    print()
+
+    # === Band F — Modelling (Rows 11, 12, 14) ===
+    train_window_blurb = (
+        "(12-month train, 1-month test)" if fold_unit == "month"
+        else "(1-year train, 1-year test)"
+    )
+    t = _step_start(f"Building expanding-window {label} time splits {train_window_blurb}")
+    months = sorted(model_df_clean["period_start"].unique())
+    splits = _build_splits_for_fold_unit(fold_unit, months)
+    _step_end(t, f"{len(splits)} folds")
+
+    t = _step_start(f"Evaluating LR + RF across all {label} folds — go grab a tea! 🍵 (~2 min)")
+    results_df, oof_probs, oof_labels, mean_importance = models.evaluate_time_splits(
+        model_df_clean, FEATURES, "risk", splits, hyperparameters,
+    )
+    rf_auc = results_df.query("model == 'rf'")["auc"].mean()
+    lr_auc = results_df.query("model == 'logreg'")["auc"].mean()
+    _step_end(t, f"LR mean AUC = {lr_auc:.4f} | RF mean AUC = {rf_auc:.4f}")
+
+    t = _step_start("Fitting final calibrated RF on all data (isotonic, cv=3)")
+    rf_final, rf_calibrated = models.fit_final_model(
+        model_df_clean, FEATURES, "risk", hyperparameters,
+    )
+    _step_end(t, "rf_final + rf_calibrated ready ✨")
+
+    # === Band G — Visualisations (Rows 13, 15, 17-20) ===
+    t = _step_start("Plotting calibration curve")
+    fig_calib, calibration_xy = visualisation.plot_calibration(oof_probs, oof_labels)
+    _step_end(t, "calibration plot done")
+
+    t = _step_start("Plotting top-15 feature importances")
+    fig_top, top_features_df = visualisation.plot_top_features(mean_importance, top_n=15)
+    top_feat = top_features_df.iloc[0]["feature"]
+    _step_end(t, f"top feature: {top_feat}")
+
+    t = _step_start("Plotting spatial risk maps (heatmaps)")
+    fig_spatial, cell_risk = visualisation.plot_spatial_risk_maps(
+        rf_final, model_df_clean, FEATURES, grid_full, joined,
+    )
+    _step_end(t, f"per-cell risk for {len(cell_risk):,} cells")
+
+    t = _step_start("Plotting ROC curve")
+    fig_roc, (fpr, tpr, roc_thresholds) = visualisation.plot_roc(oof_probs, oof_labels)
+    _step_end(t, f"{len(fpr)} points")
+
+    t = _step_start("Plotting Precision–Recall curve")
+    fig_pr, (precision, recall, pr_thresholds, ap) = visualisation.plot_precision_recall(
+        oof_probs, oof_labels,
+    )
+    _step_end(t, f"average precision = {ap:.4f}")
+
+    t = _step_start("Plotting feature importance by group")
+    fig_groups, group_importance_df = visualisation.plot_feature_importance_by_group(
+        mean_importance, GROUPS,
+    )
+    _step_end(t, f"{len(group_importance_df)} feature groups")
+
+    # Cell 19 mutation: add per-row risk_prob to model_df_clean before export.
+    # When fold_unit == "both", the second pass refits rf_final and overwrites
+    # this column with the same deterministic value (same seed, same data).
+    model_df_clean["risk_prob"] = rf_final.predict_proba(model_df_clean[FEATURES])[:, 1]
+
+    # === Band H — Export (Row 22) — cell 24 verbatim. FLAG_017 contract surface. ===
+    t = _step_start("Exporting CSVs (model_df_clean, feature_importance, model_summary)")
+    export_artefacts(model_df_clean, mean_importance, results_df, output_dir)
+    _step_end(t, f"3 CSVs written to {output_dir}/")
+
+    # === Phase 6 parity dump (opt-in; --dump-parity-arrays only) ===
+    # Phase 6 baseline was captured under monthly folds, so the dump is only
+    # meaningful for fold_unit == "month". Yearly runs skip silently.
+    if dump_parity_arrays is not None and fold_unit == "month":
+        rf_calibrated_preds = rf_calibrated.predict_proba(model_df_clean[FEATURES])[:, 1]
+        _dump_parity_arrays(
+            dump_parity_arrays,
+            oof_probs=oof_probs,
+            oof_labels=oof_labels,
+            results_df=results_df,
+            mean_importance=mean_importance,
+            calibration_xy=calibration_xy,
+            fpr=fpr,
+            tpr=tpr,
+            roc_thresholds=roc_thresholds,
+            precision=precision,
+            recall=recall,
+            pr_thresholds=pr_thresholds,
+            ap=ap,
+            cell_risk=cell_risk,
+            group_importance_df=group_importance_df,
+            rf_final_preds=model_df_clean["risk_prob"].to_numpy(),
+            rf_calibrated_preds=rf_calibrated_preds,
+        )
+
+    # === Save joblib models + figures (orchestrator polish; Row 23) ===
+    t = _step_start("Saving joblib models + figure PNGs")
+    import joblib
+    models_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    joblib.dump(rf_final, models_dir / "rf_final.joblib")
+    joblib.dump(rf_calibrated, models_dir / "rf_calibrated.joblib")
+    fig_calib.savefig(figures_dir / "calibration.png", bbox_inches="tight")
+    fig_top.savefig(figures_dir / "top_features.png", bbox_inches="tight")
+    fig_spatial.savefig(figures_dir / "spatial_risk_maps.png", bbox_inches="tight")
+    fig_roc.savefig(figures_dir / "roc.png", bbox_inches="tight")
+    fig_pr.savefig(figures_dir / "precision_recall.png", bbox_inches="tight")
+    fig_groups.savefig(figures_dir / "feature_importance_by_group.png", bbox_inches="tight")
+    plt.close("all")
+    _step_end(t, "2 joblib models + 6 figure PNGs saved")
+
+    # === Per-species pipeline (opt-in; --species flag required) ===
+    if species_filter is not None:
+        species_to_run = SPECIES_LIST if species_filter == "all" else [species_filter]
+        species_comparison_rows = []
+
+        variants_to_run = (
+            ["lag", "no_lag"] if species_variant == "both"
+            else [species_variant.replace("-", "_")]
+        )
+        if species_mode == "both":
+            modes_to_run = ["road", "rail"]
+        elif species_mode == "all":
+            modes_to_run = ["default", "road", "rail"]
+        else:
+            modes_to_run = [species_mode]
+
+        # T10 (2026-05-03): mode now filters BOTH the target (collision_count
+        # restricted by Typ av olycka via collision_infrastructure_filter) AND the cells
+        # (filter to cells with the relevant infrastructure). Default mode
+        # filters neither (counts all collisions on any-infra cells).
+        _MODE_COLLISION_INFRASTRUCTURE_FILTER = {
+            "road":    "road",
+            "rail":    "rail",
+            "default": None,
+        }
+        _MODE_CELL_FILTER = {
+            "road":    lambda d: d[d["road_length_m"] > 0],
+            "rail":    lambda d: d[d["rail_density"] > 0],
+            "default": lambda d: d[(d["road_length_m"] > 0) | (d["rail_density"] > 0)],
+        }
+
+        for sp in species_to_run:
+            sp_label = SPECIES_LABELS[sp]
+
+            for mode in modes_to_run:
+                collision_infra_filter = _MODE_COLLISION_INFRASTRUCTURE_FILTER.get(mode)
+                cell_filter = _MODE_CELL_FILTER.get(mode)
+                if cell_filter is None:
+                    print(f"  Skipping {sp} / {mode} — unrecognised mode.")
+                    continue
+
+                df_s_base, _ = _build_species_model_df(
+                    sp, joined, grid_full, model_df_clean,
+                    collision_infrastructure_filter=collision_infra_filter,
+                )
+                df_mode = cell_filter(df_s_base).copy()
+
+                if len(df_mode) == 0:
+                    print(f"  Skipping {sp} / {mode} — no rows after mode filter.")
+                    continue
+
+                for var in variants_to_run:
+                    _sp_emoji = {"roe_deer": "🦌", "moose": "🫎", "wild_boar": "🐗", "fallow_deer": "🦌"}.get(sp, "🌸")
+                    _var_emoji = "🔮" if var == "lag" else "📊"
+                    _mode_emoji = {"road": "🛣️", "rail": "🚂", "default": "🌍", "both": "🔀"}.get(mode, "✨")
+                    print(f"\n  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+                    print(f"  {_sp_emoji}  {sp_label.upper()}  |  {_var_emoji} variant={var}  |  {_mode_emoji} mode={mode}  |  {fu_emoji} folds={label}  {_sp_emoji}")
+                    print(f"  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
+
+                    if var == "no_lag":
+                        features_s = get_species_features_no_lag(sp)
+                    else:
+                        features_s = get_species_features(sp)
+
+                    df_var = df_mode.dropna(subset=features_s).copy()
+                    print(f"\n  💕 {len(df_var):,} cell-months  |  positive rate: {df_var['risk'].mean():.3f}  |  shape: {df_var.shape}  💕")
+
+                    out_dir = species_output_dir / f"{sp}_{mode}_{var}"
+                    out_dir.mkdir(parents=True, exist_ok=True)
+
+                    months_s = sorted(df_var["period_start"].unique())
+                    splits_s = _build_splits_for_fold_unit(fold_unit, months_s)
+
+                    print(f"  🔮  running cross-validation across {len(splits_s)} {label} folds — RF + LR on each!!")
+                    print(f"  🌸  this is the slow part!! hang tight, the moose are being counted very carefully  🫎💕", flush=True)
+
+                    res_df, oof_rf, oof_lr, oof_lbl, mean_imp = models.evaluate_time_splits(
+                        df_var, features_s, "risk", splits_s, hyperparameters,
+                        return_lr_probs=True,
+                    )
+
+                    summary = (
+                        res_df.groupby("model")[["auc", "precision", "recall", "f1", "accuracy"]]
+                        .agg(["mean", "std"])
+                        .round(3)
+                    )
+                    print(summary)
+
+                    res_df.to_csv(out_dir / f"cv_results_{sp}.csv", index=False)
+                    mean_imp.to_csv(out_dir / f"feature_importance_{sp}.csv")
+                    df_var.to_csv(out_dir / f"model_df_{sp}.csv", index=False)
+
+                    rf_s = RandomForestClassifier(**hyperparameters["random_forest"])
+                    rf_s.fit(df_var[features_s], df_var["risk"])
+
+                    title_suffix = f"{sp_label} ({mode}, {var.replace('_', '-')}, {label} folds)"
+
+                    fig, _ = visualisation.plot_species_feature_importance(mean_imp, title_suffix)
+                    fig.savefig(out_dir / f"feature_importance_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, _ = visualisation.plot_roc(
+                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
+                        title=f"ROC Curve — {title_suffix}",
+                    )
+                    fig.savefig(out_dir / f"roc_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, _ = visualisation.plot_precision_recall(
+                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
+                        title=f"Precision–Recall — {title_suffix}",
+                    )
+                    fig.savefig(out_dir / f"pr_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, _ = visualisation.plot_calibration(
+                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
+                        title=f"Calibration — {title_suffix}",
+                    )
+                    fig.savefig(out_dir / f"calibration_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    fig, _ = visualisation.plot_species_risk_map(
+                        grid_full, joined, sp, sp_label, df_var, rf_s, features_s,
+                    )
+                    fig.savefig(out_dir / f"risk_map_{sp}.pdf", bbox_inches="tight")
+                    plt.close(fig)
+
+                    for model_name in ["logreg", "rf"]:
+                        species_comparison_rows.append({
+                            "species":      sp,
+                            "variant":      var,
+                            "mode":         mode,
+                            "model":        model_name,
+                            "auc_mean":     summary.loc[model_name, ("auc",    "mean")],
+                            "auc_std":      summary.loc[model_name, ("auc",    "std")],
+                            "f1_mean":      summary.loc[model_name, ("f1",     "mean")],
+                            "recall_mean":  summary.loc[model_name, ("recall", "mean")],
+                        })
+
+        if species_comparison_rows:
+            comparison_df = pd.DataFrame(species_comparison_rows)
+            species_output_dir.mkdir(parents=True, exist_ok=True)
+            comparison_df.to_csv(species_output_dir / "species_comparison.csv", index=False)
+            print(f"\n=== Species comparison ({label} folds) ===")
+            print(comparison_df.to_string(index=False))
+
+
 def main(
     data_dir: Path = Path("data"),
     parquet_cache_dir: Path = Path("data/processed/cache"),
@@ -137,6 +470,7 @@ def main(
     use_cache: bool = True,
     hyperparameters_path: Path = Path("config/hyperparameters.yaml"),
     dump_parity_arrays: Path | None = None,
+    fold_unit: str = "month",
 ) -> None:
     """Run the WVC pipeline end-to-end.
 
@@ -284,259 +618,43 @@ def main(
     model_df_clean = model_df.dropna(subset=FEATURES).copy()
     _step_end(t, f"model_df_clean: {len(model_df_clean):,} × {len(model_df_clean.columns)}")
 
-    # === Band F — Modelling (Rows 11, 12, 14) ===
+    # === Bands F–H + per-species: dispatched once per fold strategy ===
+    fold_units_to_run = _resolve_fold_units(fold_unit)
     hyperparameters = models.load_hyperparameters(hyperparameters_path)
 
-    t = _step_start("Building expanding-window time splits (12-month train, 1-month test)")
-    months = sorted(model_df_clean["period_start"].unique())
-    splits = models.make_expanding_time_splits(months, min_train_months=12, test_horizon=1)
-    _step_end(t, f"{len(splits)} folds")
 
-    t = _step_start("Evaluating LR + RF across all folds — go grab a tea! 🍵 (~2 min)")
-    results_df, oof_probs, oof_labels, mean_importance = models.evaluate_time_splits(
-        model_df_clean, FEATURES, "risk", splits, hyperparameters,
-    )
-    rf_auc = results_df.query("model == 'rf'")["auc"].mean()
-    lr_auc = results_df.query("model == 'logreg'")["auc"].mean()
-    _step_end(t, f"LR mean AUC = {lr_auc:.4f} | RF mean AUC = {rf_auc:.4f}")
+    if len(fold_units_to_run) > 1:
+        print()
+        print(f"  ✿  fold_unit={fold_unit!r} → running {' + '.join(fold_units_to_run)} folds back-to-back  ✿")
+        print()
 
-    t = _step_start("Fitting final calibrated RF on all data (isotonic, cv=3)")
-    rf_final, rf_calibrated = models.fit_final_model(
-        model_df_clean, FEATURES, "risk", hyperparameters,
-    )
-    _step_end(t, "rf_final + rf_calibrated ready ✨")
-
-    # === Band G — Visualisations (Rows 13, 15, 17-20) ===
-    t = _step_start("Plotting calibration curve")
-    fig_calib, calibration_xy = visualisation.plot_calibration(oof_probs, oof_labels)
-    _step_end(t, "calibration plot done")
-
-    t = _step_start("Plotting top-15 feature importances")
-    fig_top, top_features_df = visualisation.plot_top_features(mean_importance, top_n=15)
-    top_feat = top_features_df.iloc[0]["feature"]
-    _step_end(t, f"top feature: {top_feat}")
-
-    t = _step_start("Plotting spatial risk maps (heatmaps)")
-    fig_spatial, cell_risk = visualisation.plot_spatial_risk_maps(
-        rf_final, model_df_clean, FEATURES, grid_full, joined,
-    )
-    _step_end(t, f"per-cell risk for {len(cell_risk):,} cells")
-
-    t = _step_start("Plotting ROC curve")
-    fig_roc, (fpr, tpr, roc_thresholds) = visualisation.plot_roc(oof_probs, oof_labels)
-    _step_end(t, f"{len(fpr)} points")
-
-    t = _step_start("Plotting Precision–Recall curve")
-    fig_pr, (precision, recall, pr_thresholds, ap) = visualisation.plot_precision_recall(
-        oof_probs, oof_labels,
-    )
-    _step_end(t, f"average precision = {ap:.4f}")
-
-    t = _step_start("Plotting feature importance by group")
-    fig_groups, group_importance_df = visualisation.plot_feature_importance_by_group(
-        mean_importance, GROUPS,
-    )
-    _step_end(t, f"{len(group_importance_df)} feature groups")
-
-    # Cell 19 mutation: add per-row risk_prob to model_df_clean before export.
-    model_df_clean["risk_prob"] = rf_final.predict_proba(model_df_clean[FEATURES])[:, 1]
-
-    # === Band H — Export (Row 22) — cell 24 verbatim. FLAG_017 contract surface. ===
-    t = _step_start("Exporting CSVs (model_df_clean, feature_importance, model_summary)")
-    export_artefacts(model_df_clean, mean_importance, results_df, output_dir)
-    _step_end(t, f"3 CSVs written to {output_dir.name}/")
-
-    # === Phase 6 parity dump (opt-in; --dump-parity-arrays only) ===
-    if dump_parity_arrays is not None:
-        rf_calibrated_preds = rf_calibrated.predict_proba(model_df_clean[FEATURES])[:, 1]
-        _dump_parity_arrays(
-            dump_parity_arrays,
-            oof_probs=oof_probs,
-            oof_labels=oof_labels,
-            results_df=results_df,
-            mean_importance=mean_importance,
-            calibration_xy=calibration_xy,
-            fpr=fpr,
-            tpr=tpr,
-            roc_thresholds=roc_thresholds,
-            precision=precision,
-            recall=recall,
-            pr_thresholds=pr_thresholds,
-            ap=ap,
-            cell_risk=cell_risk,
-            group_importance_df=group_importance_df,
-            rf_final_preds=model_df_clean["risk_prob"].to_numpy(),
-            rf_calibrated_preds=rf_calibrated_preds,
+    fold_unit_trees: list[dict] = []
+    for fu in fold_units_to_run:
+        fu_paths = _fold_unit_paths(
+            fu,
+            month_output_dir=output_dir,
+            month_models_dir=models_dir,
+            month_figures_dir=figures_dir,
+            repo_root=_REPO_ROOT,
         )
-
-    # === Save joblib models + figures (orchestrator polish; Row 23) ===
-    t = _step_start("Saving joblib models + figure PNGs")
-    import joblib
-    models_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir.mkdir(parents=True, exist_ok=True)
-    joblib.dump(rf_final, models_dir / "rf_final.joblib")
-    joblib.dump(rf_calibrated, models_dir / "rf_calibrated.joblib")
-    fig_calib.savefig(figures_dir / "calibration.png", bbox_inches="tight")
-    fig_top.savefig(figures_dir / "top_features.png", bbox_inches="tight")
-    fig_spatial.savefig(figures_dir / "spatial_risk_maps.png", bbox_inches="tight")
-    fig_roc.savefig(figures_dir / "roc.png", bbox_inches="tight")
-    fig_pr.savefig(figures_dir / "precision_recall.png", bbox_inches="tight")
-    fig_groups.savefig(figures_dir / "feature_importance_by_group.png", bbox_inches="tight")
-    plt.close("all")
-    _step_end(t, "2 joblib models + 6 figure PNGs saved")
-
-    # === Per-species pipeline (opt-in; --species flag required) ===
-    if species_filter is not None:
-        species_to_run = SPECIES_LIST if species_filter == "all" else [species_filter]
-        species_output_dir = _REPO_ROOT / "outputs/per_species"
-        species_comparison_rows = []
-
-        variants_to_run = (
-            ["lag", "no_lag"] if species_variant == "both"
-            else [species_variant.replace("-", "_")]
+        _run_modelling_for_fold_unit(
+            fu,
+            model_df_clean=model_df_clean,
+            joined=joined,
+            grid_full=grid_full,
+            hyperparameters=hyperparameters,
+            species_filter=species_filter,
+            species_variant=species_variant,
+            species_mode=species_mode,
+            output_dir=fu_paths["output_dir"],
+            models_dir=fu_paths["models_dir"],
+            figures_dir=fu_paths["figures_dir"],
+            species_output_dir=fu_paths["species_output_dir"],
+            dump_parity_arrays=dump_parity_arrays,
         )
-        if species_mode == "both":
-            modes_to_run = ["road", "rail"]
-        elif species_mode == "all":
-            modes_to_run = ["default", "road", "rail"]
-        else:
-            modes_to_run = [species_mode]
+        fold_unit_trees.append({"label": fu, **fu_paths})
 
-        # T10 (2026-05-03): mode now filters BOTH the target (collision_count
-        # restricted by Typ av olycka via collision_infrastructure_filter) AND the cells
-        # (filter to cells with the relevant infrastructure). Default mode
-        # filters neither (counts all collisions on any-infra cells).
-        _MODE_COLLISION_INFRASTRUCTURE_FILTER = {
-            "road":    "road",
-            "rail":    "rail",
-            "default": None,
-        }
-        _MODE_CELL_FILTER = {
-            "road":    lambda d: d[d["road_length_m"] > 0],
-            "rail":    lambda d: d[d["rail_density"] > 0],
-            "default": lambda d: d[(d["road_length_m"] > 0) | (d["rail_density"] > 0)],
-        }
-
-        for sp in species_to_run:
-            sp_label = SPECIES_LABELS[sp]
-
-            for mode in modes_to_run:
-                collision_infra_filter = _MODE_COLLISION_INFRASTRUCTURE_FILTER.get(mode)
-                cell_filter = _MODE_CELL_FILTER.get(mode)
-                if cell_filter is None:
-                    print(f"  Skipping {sp} / {mode} — unrecognised mode.")
-                    continue
-
-                # Build the per-species model_df with the mode-specific target
-                # collision-type filter applied at the source.
-                df_s_base, _ = _build_species_model_df(
-                    sp, joined, grid_full, model_df_clean,
-                    collision_infrastructure_filter=collision_infra_filter,
-                )
-                df_mode = cell_filter(df_s_base).copy()
-
-                if len(df_mode) == 0:
-                    print(f"  Skipping {sp} / {mode} — no rows after mode filter.")
-                    continue
-
-                for var in variants_to_run:
-                    _sp_emoji = {"roe_deer": "🦌", "moose": "🫎", "wild_boar": "🐗", "fallow_deer": "🦌"}.get(sp, "🌸")
-                    _var_emoji = "🔮" if var == "lag" else "📊"
-                    _mode_emoji = {"road": "🛣️", "rail": "🚂", "default": "🌍", "both": "🔀"}.get(mode, "✨")
-                    print(f"\n  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-                    print(f"  {_sp_emoji}  {sp_label.upper()}  |  {_var_emoji} variant={var}  |  {_mode_emoji} mode={mode}  {_sp_emoji}")
-                    print(f"  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
-
-                    if var == "no_lag":
-                        features_s = get_species_features_no_lag(sp)
-                    else:
-                        features_s = get_species_features(sp)
-
-                    df_var = df_mode.dropna(subset=features_s).copy()
-                    print(f"\n  💕 {len(df_var):,} cell-months  |  positive rate: {df_var['risk'].mean():.3f}  |  shape: {df_var.shape}  💕")
-
-                    out_dir = species_output_dir / f"{sp}_{mode}_{var}"
-                    out_dir.mkdir(parents=True, exist_ok=True)
-
-                    months_s = sorted(df_var["period_start"].unique())
-                    splits_s = models.make_expanding_time_splits(
-                        months_s, min_train_months=12, test_horizon=1
-                    )
-
-                    print(f"  🔮  running cross-validation across {len(splits_s)} time folds — RF + LR on each!!")
-                    print(f"  🌸  this is the slow part!! hang tight, the moose are being counted very carefully  🫎💕", flush=True)
-
-                    res_df, oof_rf, oof_lr, oof_lbl, mean_imp = models.evaluate_time_splits(
-                        df_var, features_s, "risk", splits_s, hyperparameters,
-                        return_lr_probs=True,
-                    )
-
-                    summary = (
-                        res_df.groupby("model")[["auc", "precision", "recall", "f1", "accuracy"]]
-                        .agg(["mean", "std"])
-                        .round(3)
-                    )
-                    print(summary)
-
-                    res_df.to_csv(out_dir / f"cv_results_{sp}.csv", index=False)
-                    mean_imp.to_csv(out_dir / f"feature_importance_{sp}.csv")
-                    df_var.to_csv(out_dir / f"model_df_{sp}.csv", index=False)
-
-                    rf_s = RandomForestClassifier(**hyperparameters["random_forest"])
-                    rf_s.fit(df_var[features_s], df_var["risk"])
-
-                    title_suffix = f"{sp_label} ({mode}, {var.replace('_', '-')})"
-
-                    fig, _ = visualisation.plot_species_feature_importance(mean_imp, title_suffix)
-                    fig.savefig(out_dir / f"feature_importance_{sp}.pdf", bbox_inches="tight")
-                    plt.close(fig)
-
-                    fig, _ = visualisation.plot_roc(
-                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
-                        title=f"ROC Curve — {title_suffix}",
-                    )
-                    fig.savefig(out_dir / f"roc_{sp}.pdf", bbox_inches="tight")
-                    plt.close(fig)
-
-                    fig, _ = visualisation.plot_precision_recall(
-                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
-                        title=f"Precision–Recall — {title_suffix}",
-                    )
-                    fig.savefig(out_dir / f"pr_{sp}.pdf", bbox_inches="tight")
-                    plt.close(fig)
-
-                    fig, _ = visualisation.plot_calibration(
-                        oof_rf, oof_lbl, oof_lr_probs=oof_lr,
-                        title=f"Calibration — {title_suffix}",
-                    )
-                    fig.savefig(out_dir / f"calibration_{sp}.pdf", bbox_inches="tight")
-                    plt.close(fig)
-
-                    fig, _ = visualisation.plot_species_risk_map(
-                        grid_full, joined, sp, sp_label, df_var, rf_s, features_s,
-                    )
-                    fig.savefig(out_dir / f"risk_map_{sp}.pdf", bbox_inches="tight")
-                    plt.close(fig)
-
-                    for model_name in ["logreg", "rf"]:
-                        species_comparison_rows.append({
-                            "species":      sp,
-                            "variant":      var,
-                            "mode":         mode,
-                            "model":        model_name,
-                            "auc_mean":     summary.loc[model_name, ("auc",    "mean")],
-                            "auc_std":      summary.loc[model_name, ("auc",    "std")],
-                            "f1_mean":      summary.loc[model_name, ("f1",     "mean")],
-                            "recall_mean":  summary.loc[model_name, ("recall", "mean")],
-                        })
-
-        if species_comparison_rows:
-            comparison_df = pd.DataFrame(species_comparison_rows)
-            comparison_df.to_csv(species_output_dir / "species_comparison.csv", index=False)
-            print("\n=== Species comparison ===")
-            print(comparison_df.to_string(index=False))
-
-    _banner_end(output_dir, models_dir, figures_dir)
+    _banner_end(fold_unit_trees)
 
 
 # Resolve all default paths relative to the code/ repo root so the script
@@ -600,6 +718,14 @@ def _build_argparser() -> "argparse.ArgumentParser":
     p.add_argument("--dump-parity-arrays", type=Path, default=None, metavar="DIR",
                    help="Phase 6 only: write parity-verification artefacts to DIR/arrays/. "
                         "Default behaviour unchanged when flag is absent.")
+    p.add_argument("--fold-unit", type=str, default="month", dest="fold_unit",
+                   choices=["month", "year", "both"],
+                   help="Cross-validation fold granularity. 'month' (default) = original "
+                        "expanding-window monthly folds (12-month train, 1-month test, ~120 folds). "
+                        "'year' = expanding-window yearly folds (1-year train, 1-year test, "
+                        "~10 folds) with all artefacts written under outputs_year/. 'both' = "
+                        "run monthly and yearly folds back-to-back, writing into outputs/ and "
+                        "outputs_year/ respectively in a single invocation.")
     return p
 
 
@@ -609,11 +735,12 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) == 1:
-        _species, _mode, _variant = _interactive_menu()
+        _species, _mode, _variant, _fold_unit = _interactive_menu()
         args = _build_argparser().parse_args([])
         args.species_filter = _species
         args.species_mode = _mode
         args.species_variant = _variant
+        args.fold_unit = _fold_unit
         _launch_fanfare()
     else:
         args = _build_argparser().parse_args()
@@ -632,4 +759,5 @@ if __name__ == "__main__":
         use_cache=args.use_cache,
         hyperparameters_path=args.hyperparameters_path,
         dump_parity_arrays=args.dump_parity_arrays,
+        fold_unit=args.fold_unit,
     )

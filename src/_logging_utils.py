@@ -103,7 +103,22 @@ def _banner_start() -> None:
     print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ", flush=True)
 
 
-def _banner_end(output_dir: Path, models_dir: Path, figures_dir: Path) -> None:
+def _banner_end(trees: list[dict] | Path, *legacy_args: Path) -> None:
+    """Print the closing kawaii banner with one path-block per fold strategy.
+
+    New API: ``_banner_end([{label, output_dir, models_dir, figures_dir,
+    species_output_dir}, ...])``. Legacy API ``_banner_end(output_dir,
+    models_dir, figures_dir)`` is kept for any caller that still uses it.
+    """
+    if isinstance(trees, Path):
+        trees = [{
+            "label":              "month",
+            "output_dir":         trees,
+            "models_dir":         legacy_args[0],
+            "figures_dir":        legacy_args[1],
+            "species_output_dir": None,
+        }]
+
     total = _time.time() - _STATE["t0"]
     mins, secs = divmod(int(total), 60)
     print("")
@@ -112,9 +127,16 @@ def _banner_end(output_dir: Path, models_dir: Path, figures_dir: Path) -> None:
     print("        ⋆｡˚ ⋆｡˚ ⋆｡˚    ٩( ๑•̀o•́๑ )و    ⋆｡˚ ⋆｡˚ ⋆｡˚                                       ")
     print(f"             🐱   total time     ➜   {mins:>2}m {secs:>2}s   ( ´ ▽ ` )ﾉ ♡                ")
     print(f"             🌸   steps done     ➜   {_STATE['step']}/{_TOTAL_STEPS}  ✓✓✓ ✧･ﾟ:*           ")
-    print(f"             🌷   CSVs           ➜   {output_dir}                                          ")
-    print(f"             🦄   models         ➜   {models_dir}                                          ")
-    print(f"             🎀   figures        ➜   {figures_dir}                                         ")
+    for tree in trees:
+        label = tree.get("label", "?")
+        fu_emoji = "📆" if label == "month" else "🗓️" if label == "year" else "✨"
+        fu_label = {"month": "monthly folds", "year": "yearly folds"}.get(label, label)
+        print(f"             {fu_emoji}   {fu_label}                                                  ")
+        print(f"               🌷   CSVs       ➜   {tree['output_dir']}                                ")
+        print(f"               🦄   models     ➜   {tree['models_dir']}                                ")
+        print(f"               🎀   figures    ➜   {tree['figures_dir']}                               ")
+        if tree.get("species_output_dir") is not None:
+            print(f"               🦌   per-species ➜   {tree['species_output_dir']}                   ")
     print("                                                                                          ")
     print("        ✿  💕  ✿  💖  ✿  💕  ✿  💖  ✿  💕  ✿  💖  ✿  💕  ✿  💖  ✿                   ")
     print("                                                                                          ")
@@ -172,8 +194,8 @@ def _kawaii_section_banner(title: str, emoji: str = "🌸") -> None:
     print(f"  ╰{bot}╯\n")
 
 
-def _interactive_menu() -> tuple[str | None, str, str]:
-    """Show run-configuration menu; return (species_filter, species_mode, species_variant)."""
+def _interactive_menu() -> tuple[str | None, str, str, str]:
+    """Show run-configuration menu; return (species_filter, species_mode, species_variant, fold_unit)."""
     print("\n  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
     print("                                                                   ")
     print("       🌸💖 ✧ W I L D L I F E   C O L L I S I O N ✧ 💖🌸          ")
@@ -218,6 +240,51 @@ def _interactive_menu() -> tuple[str | None, str, str]:
 
     _silly = "  (ಠ_ಠ)  that's not an option, silly!! choose again!!  (ಠ_ಠ)"
 
+    # ── Step 0 (asked first, applies to whatever else gets chosen) ──
+    _kawaii_section_banner(
+        "Amanda, we know you absolutely HATE folding the laundry... "
+        "but at least now you can fold the DATA!! 💕💖💗 (｡♥‿♥｡)",
+        "🧺",
+    )
+    print("  ✨💖  the ONLY kind of folding you'll actually enjoy!! pinky promise!! 🤞🌸")
+    print("  🌷✨  (no socks were harmed in the making of this cross-validation!!)  ヾ(＾∇＾)ﾉ ♡")
+    print()
+    print("  [1] 📆💕 Monthly folds (default)  ✿ ٩(◕‿◕✿)۶ ✿")
+    print("       🌸  the classic crease!! every little month gets its own teeny tiny fold!!  🌸")
+    print("       💖  expanding window  •  1 moose-nth test horizon  •  ~120 dainty folds  💖")
+    print("       ✨  (the OG setup!! every metric in the thesis so far comes from these!!)  ✨")
+    print()
+    print("  [2] 🗓️✨ Yearly folds  ✿ (｡>‿‿<｡)♡ ✿")
+    print("       🌷  the chunky burrito fold!! one whole year-iversary per test window!!  🌷")
+    print("       💗  expanding window  •  1 year test horizon  •  ~10 thicc folds  💗")
+    print("       🦄  (Henki's request!! fewer folds, each test window is a full calendar year!!)  🦄")
+    print()
+    print("  [3] 🌈💖 BOTH (the laundry-day special!!)  ✿ (づ｡◕‿‿◕｡)づ♡♡♡ ✿")
+    print("       ✨  fold the data BY MOON-TH and BY YEAR!! TimeFolding™!! double-cute!!  ✨")
+    print("       🌸  monthly results land in outputs/  •  yearly results land in outputs_year/  🌸")
+    print("       💕  (it's like sorting whites from colours, but for TIME itself!! very tidy!!)  💕")
+    print("       🎀  warning: maximum thesis-origami!! prepare to be folded WITH joy!!  🎀\n")
+    while True:
+        fu_choice = input("  Choice [1]: ").strip() or "1"
+        if fu_choice in ("1", "2", "3"):
+            break
+        print(_silly)
+    fold_unit = {"1": "month", "2": "year", "3": "both"}[fu_choice]
+    fold_unit_label = {
+        "month": "monthly folds 📆 (the classic crease!!) 💕",
+        "year":  "yearly folds 🗓️ (the burrito fold!!) ✨  — Henki mode!! 🦄",
+        "both":  "BOTH 📆🗓️ (LAUNDRY DAY SPECIAL!!) 💖💖  — outputs/ + outputs_year/",
+    }[fold_unit]
+    fold_unit_hype = {
+        "month": "monthly folds!! the classic crease!! every metric we have was folded this way!! 📆💕  (◕‿◕✿)",
+        "year":  "yearly folds!! Henki vibes!! one whole calendar year per fold — chunky-chunky-chunky!! 🗓️✨  ٩(◕‿◕)۶",
+        "both":  "BOTH!!! we are folding time TWICE!! moose-nthly AND year-iversary style!! ultimate origami!! 🌟🌟  (｡♥‿♥｡)",
+    }[fold_unit]
+    _kawaii_pause(_MENU_PAUSE)
+    print(f"\n  💕✨  {fold_unit_hype}")
+    print(f"  🌸  {fold_unit_label} locked in!! 🌸  ✧･ﾟ:* (ﾉ◕ヮ◕)ﾉ*:･ﾟ✧")
+    _kawaii_pause(_CONFIG_HYPE_PAUSE)
+
     while True:
         _kawaii_section_banner("what would you like to do today, Amanda?? ✿(◕‿◕✿)", "🦄")
         print("  [1] 🌈 Full sweep  — pooled + ALL per-species   (~55 min)  ← recommended!! 💖")
@@ -238,7 +305,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
             print("  🦄  24 beautiful per-species models PLUS the pooled baseline!!  🦄")
             print("  💕  this is going to be SPECTACULAR and we are SO proud of you  💕")
             _kawaii_pause(_MENU_PAUSE)
-            return "all", "all", "both"
+            return "all", "all", "both", fold_unit
 
         if choice == "2":
             _kawaii_pause(_MENU_PAUSE)
@@ -247,7 +314,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
             print("  🌷  all four species together as ONE beautiful unified model  🌷")
             print("  ✨  clean, fast, powerful — peak wildlife science!!  ✨")
             _kawaii_pause(_MENU_PAUSE)
-            return None, "default", "lag"
+            return None, "default", "lag", fold_unit
 
         _kawaii_pause(_MENU_PAUSE)
         print()
@@ -329,6 +396,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
         print()
         print("  ✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡.:* *.:｡✿*ﾟ'ﾟ･✿.｡  ")
         print(f"       🎀  CONFIGURATION COMPLETE!!  🎀")
+        print(f"       💖  fold     : {fold_unit_label}")
         print(f"       💖  species  : {sp_label}")
         print(f"       💖  mode     : {mode_label}")
         print(f"       💖  variant  : {var_label}")
@@ -344,7 +412,7 @@ def _interactive_menu() -> tuple[str | None, str, str]:
 
         if confirm == "y":
             _kawaii_pause(_MENU_PAUSE)
-            return species, mode, variant
+            return species, mode, variant, fold_unit
 
         print()
         print("  💕  no worries!! let's start over!! the moose are very patient!!  💕")

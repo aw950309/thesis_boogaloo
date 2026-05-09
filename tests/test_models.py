@@ -50,6 +50,51 @@ def test_make_expanding_time_splits_test_horizon() -> None:
         assert len(te) == 3
 
 
+def test_make_expanding_year_splits_count_and_window() -> None:
+    """11 calendar years (2015..2025) → 10 folds with min_train_years=1."""
+    months = pd.date_range("2015-01-01", "2025-12-01", freq="MS")
+    splits = models.make_expanding_year_splits(months, min_train_years=1, test_horizon=1)
+    assert len(splits) == 10
+
+    # First fold: train = 2015 (12 months), test = 2016 (12 months).
+    train_0, test_0 = splits[0]
+    assert len(train_0) == 12
+    assert len(test_0) == 12
+    assert all(pd.Timestamp(m).year == 2015 for m in train_0)
+    assert all(pd.Timestamp(m).year == 2016 for m in test_0)
+
+    # Last fold: train = 2015..2024 (120 months), test = 2025 (12 months).
+    train_last, test_last = splits[-1]
+    assert len(train_last) == 120
+    assert len(test_last) == 12
+    assert all(pd.Timestamp(m).year == 2025 for m in test_last)
+
+    # No fold's train and test overlap.
+    for tr, te in splits:
+        assert set(tr).isdisjoint(set(te))
+
+
+def test_make_expanding_year_splits_partial_year() -> None:
+    """Year folds tolerate partial years (e.g. 2015 starting in March)."""
+    months = pd.date_range("2015-03-01", "2017-12-01", freq="MS")
+    splits = models.make_expanding_year_splits(months, min_train_years=1, test_horizon=1)
+    # Years are {2015, 2016, 2017} → 2 folds with min_train_years=1, test_horizon=1.
+    assert len(splits) == 2
+    train_0, test_0 = splits[0]
+    assert len(train_0) == 10  # March-Dec 2015
+    assert len(test_0) == 12   # 2016
+    assert all(pd.Timestamp(m).year == 2015 for m in train_0)
+
+
+def test_make_expanding_year_splits_test_horizon_two() -> None:
+    months = pd.date_range("2015-01-01", "2024-12-01", freq="MS")  # 10 years
+    splits = models.make_expanding_year_splits(months, min_train_years=2, test_horizon=2)
+    # range(2, 10 - 2 + 1) = range(2, 9) → 7 folds
+    assert len(splits) == 7
+    for tr, te in splits:
+        assert len(te) == 24  # 2 years × 12 months
+
+
 def _toy_model_df(n_months: int = 24, n_cells: int = 50) -> pd.DataFrame:
     """Two-feature, two-class fixture with enough variety for AUC computation."""
     rng = np.random.default_rng(0)

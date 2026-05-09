@@ -3,6 +3,7 @@
 Public API:
     load_hyperparameters(path)
     make_expanding_time_splits(months, min_train_months=12, test_horizon=1)
+    make_expanding_year_splits(months, min_train_years=1, test_horizon=1)
     evaluate_time_splits(model_df, features, target, splits, hyperparameters)
     fit_final_model(model_df, features, target, hyperparameters)
 """
@@ -49,6 +50,40 @@ def make_expanding_time_splits(
         (months[:i], months[i:i + test_horizon])
         for i in range(min_train_months, len(months) - test_horizon + 1)
     ]
+
+
+def make_expanding_year_splits(
+    months,
+    min_train_years: int = 1,
+    test_horizon: int = 1,
+) -> list[tuple[list, list]]:
+    """Build expanding-window year-based train/test splits.
+
+    Groups ``months`` (an iterable of monthly period_start timestamps) by
+    calendar year, then builds an expanding window over years. Each fold's
+    ``train`` and ``test`` lists are still month-level timestamps so the
+    consumer (``evaluate_time_splits``) can ``period_start.isin(...)`` against
+    the same ``model_df`` it uses for monthly folds — only the grouping
+    granularity differs.
+
+    For each split index ``i`` in ``[min_train_years, len(years) - test_horizon]``,
+    the train window covers years ``years[:i]`` and the test window covers
+    years ``years[i:i + test_horizon]``. The window grows by one year per fold.
+    """
+    months_dt = pd.to_datetime(list(months))
+    months_by_year: dict[int, list] = {}
+    for m in months_dt:
+        months_by_year.setdefault(int(m.year), []).append(m)
+    years = sorted(months_by_year)
+
+    splits: list[tuple[list, list]] = []
+    for i in range(min_train_years, len(years) - test_horizon + 1):
+        train_years = years[:i]
+        test_years = years[i:i + test_horizon]
+        train_months = [m for y in train_years for m in months_by_year[y]]
+        test_months = [m for y in test_years for m in months_by_year[y]]
+        splits.append((train_months, test_months))
+    return splits
 
 
 def evaluate_time_splits(

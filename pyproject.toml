@@ -9,15 +9,21 @@ version = "0.1.0"
 description = "Predicting High-Risk Wildlife Zones in Sweden with Machine Learning and Environmental Data"
 
 dependencies = [
-    #The versions were suggested by the ide //Alex
-    #More will most likely follow //Alex
+    # Numerical libraries are pinned with `==` because patch-level releases
+    # of pandas/numpy can change row ordering after merge/groupby/dropna,
+    # which propagates through Random Forest bootstrap sampling and shifts
+    # per-fold AUC values by ~0.005. The thesis Discussion is anchored to
+    # numerical results computed against these exact versions; bumping any
+    # of them invalidates the audit chain. Loose pins (>=) are kept for
+    # libraries whose patch-level changes do not affect numerical output.
     # Data handling
-    "pandas>=2.0.0",        # DataFrames - load, clean, manipulate CSV/Excel data
-    "numpy>=1.24.0",        # Math arrays - fast numerical operations
+    "pandas==3.0.0",        # DataFrames — pinned for reproducibility (row order matters for RF)
+    "numpy==2.4.2",         # Math arrays — pinned (legacy RandomState behaviour)
     "fastparquet>=2024.0.0", # Parquet engine for cached intermediate features (fastparquet over pyarrow due to pandas 3 / pyarrow 24 incompatibility)
 
-    # Machine learning
-    "scikit-learn>=1.3.0",  # ML models - Random Forest, Linear Regression, etc.
+    # Machine learning — pinned for RF reproducibility (random_state alone is not enough across versions)
+    "scikit-learn==1.8.0",  # ML models — pinned (RF predict_proba / class_weight balanced)
+    "scipy==1.17.0",        # Stats — pinned (binomtest / wilcoxon p-values in compare_models.py)
 
     # Visualization
     "matplotlib>=3.7.0",    # Basic plotting - low-level charts
@@ -32,6 +38,9 @@ dependencies = [
 
     # Config files
     "pyyaml>=6.0.0",        # YAML parser - read hyperparameters.yaml
+
+    # Statistics tooling
+    "statsmodels>=0.14.0",  # Multiple-comparison corrections in compare_models.py
 ]
 
 [tool.setuptools]
