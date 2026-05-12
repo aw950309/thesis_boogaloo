@@ -79,8 +79,6 @@ def paired_stats(rf: np.ndarray, lr: np.ndarray) -> dict:
     ci_lo = mean_d - t_crit * se_d
     ci_hi = mean_d + t_crit * se_d
 
-    _, t_p = scipy.stats.ttest_rel(rf, lr)
-
     try:
         _, w_p = scipy.stats.wilcoxon(delta, alternative="two-sided", correction=False)
     except ValueError as exc:
@@ -94,8 +92,6 @@ def paired_stats(rf: np.ndarray, lr: np.ndarray) -> dict:
         "se_delta": se_d,
         "ci_lo": ci_lo,
         "ci_hi": ci_hi,
-        "zero_in_ci": ci_lo <= 0 <= ci_hi,
-        "ttest_p": float(t_p),
         "wilcoxon_p": float(w_p),
         "rf_wins": mean_d > 0,
     }
@@ -172,7 +168,7 @@ def ascii_table(headers, rows):
 def print_paired_table(rows):
     headers = ["species", "mode", "variant", "n",
                "mean_delta", "SD", "ci_lo", "ci_hi",
-               "t_p", "wilcox_p", "bonf_p", "fdr_p"]
+               "wilcox_p", "bonf_p", "fdr_p"]
     data = []
     for r in rows:
         data.append([
@@ -184,7 +180,6 @@ def print_paired_table(rows):
             f"{r['sd_delta']:.4f}",
             f"{r['ci_lo']:+.4f}",
             f"{r['ci_hi']:+.4f}",
-            fmt_p(r["ttest_p"]),
             fmt_p(r["wilcoxon_p"]),
             fmt_p(r["bonf_p"]),
             fmt_p(r["fdr_p"]),
@@ -357,6 +352,7 @@ def _write_difference_report(repo_root: Path) -> bool:
     y = _load_comparison(yearly_csv)
 
     keep_cols = ["n", "mean_delta", "ci_lo", "ci_hi", "fdr_p", "rf_wins"]
+
     diff = (
         m[keep_cols].add_suffix("_m")
         .join(y[keep_cols].add_suffix("_y"), how="outer")
@@ -453,12 +449,26 @@ def _run_for_tree(label: str, per_species_dir: Path) -> bool:
 
     csv_cols = ["species", "mode", "variant", "n",
                 "mean_delta", "sd_delta", "se_delta",
-                "ci_lo", "ci_hi", "zero_in_ci",
-                "ttest_p", "wilcoxon_p", "bonf_p", "fdr_p", "rf_wins"]
+                "ci_lo", "ci_hi",
+                "wilcoxon_p", "bonf_p", "fdr_p", "rf_wins"]
     out_csv = per_species_dir / "model_comparison.csv"
     pd.DataFrame(rows)[csv_cols].to_csv(
         out_csv, index=False, float_format="%.6f"
     )
+
+    binom_order = ["all_24", "default", "road", "rail", "default_road"]
+    binom_rows = [
+        {
+            "group": key,
+            "rf_wins": binomial_results[key]["k"],
+            "total": binomial_results[key]["n"],
+            "one_sided_p": binomial_results[key]["one_sided_p"],
+            "two_sided_p": binomial_results[key]["two_sided_p"],
+        }
+        for key in binom_order
+    ]
+    binom_csv = per_species_dir / "binomial_tests.csv"
+    pd.DataFrame(binom_rows).to_csv(binom_csv, index=False, float_format="%.6f")
 
     print("paired delta AUC (RF - LR)")
     print()

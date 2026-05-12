@@ -41,8 +41,8 @@ dependencies = [
 
     # Statistics tooling
     "statsmodels>=0.14.0",  # Multiple-comparison corrections in compare_models.py
+    "arch>=5.0",            # Block bootstrap for temporal models
 ]
 
 [tool.setuptools]
 packages = ["src"]
-
