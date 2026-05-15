@@ -20,6 +20,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
     f1_score,
     precision_score,
     recall_score,
@@ -149,6 +150,7 @@ def evaluate_time_splits(
             "recall":    recall_score(y_test, y_pred_lr, zero_division=0),
             "f1":        f1_score(y_test, y_pred_lr, zero_division=0),
             "accuracy":  accuracy_score(y_test, y_pred_lr),
+            "average_precision": average_precision_score(y_test, y_prob_lr),
         })
 
         # ── Random Forest ──
@@ -164,6 +166,7 @@ def evaluate_time_splits(
             "recall":    recall_score(y_test, y_pred_rf, zero_division=0),
             "f1":        f1_score(y_test, y_pred_rf, zero_division=0),
             "accuracy":  accuracy_score(y_test, y_pred_rf),
+            "average_precision": average_precision_score(y_test, y_prob_rf),
         })
 
         oof_probs_rf.extend(y_prob_rf.tolist())

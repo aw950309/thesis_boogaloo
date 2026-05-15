@@ -385,7 +385,7 @@ def _run_modelling_for_fold_unit(
                     )
 
                     summary = (
-                        res_df.groupby("model")[["auc", "precision", "recall", "f1", "accuracy"]]
+                        res_df.groupby("model")[["auc", "precision", "recall", "f1", "accuracy", "average_precision"]]
                         .agg(["mean", "std"])
                         .round(3)
                     )

@@ -69,6 +69,23 @@ def extract_paired_aucs(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     return rf_s.loc[common].values, lr_s.loc[common].values
 
 
+def per_model_means(df: pd.DataFrame) -> dict:
+    """Return mean AUC and mean Average Precision per model for this combination.
+
+    AUC is included alongside AP for symmetry — both per-fold metrics produced by
+    ``evaluate_time_splits``. Paired Δ stats remain AUC-only (see ``paired_stats``).
+    """
+    out = {}
+    for model_name, suffix in [("logreg", "lr"), ("rf", "rf")]:
+        sub = df[df["model"] == model_name]
+        out[f"mean_auc_{suffix}"] = float(sub["auc"].mean()) if len(sub) else float("nan")
+        if "average_precision" in sub.columns:
+            out[f"mean_ap_{suffix}"] = float(sub["average_precision"].mean()) if len(sub) else float("nan")
+        else:
+            out[f"mean_ap_{suffix}"] = float("nan")
+    return out
+
+
 def paired_stats(rf: np.ndarray, lr: np.ndarray) -> dict:
     delta = rf - lr
     n = len(delta)
@@ -118,8 +135,9 @@ def compute_all(per_species_dir: Path) -> tuple[list[dict], dict]:
         df = load_cv_results(per_species_dir, species, mode, variant)
         rf_aucs, lr_aucs = extract_paired_aucs(df)
         stats = paired_stats(rf_aucs, lr_aucs)
+        means = per_model_means(df)
         wilcoxon_pvals.append(stats["wilcoxon_p"])
-        rows.append({"species": species, "mode": mode, "variant": variant, **stats})
+        rows.append({"species": species, "mode": mode, "variant": variant, **stats, **means})
 
     bonf_pvals, fdr_pvals = apply_corrections(wilcoxon_pvals)
     for i, r in enumerate(rows):
@@ -450,7 +468,9 @@ def _run_for_tree(label: str, per_species_dir: Path) -> bool:
     csv_cols = ["species", "mode", "variant", "n",
                 "mean_delta", "sd_delta", "se_delta",
                 "ci_lo", "ci_hi",
-                "wilcoxon_p", "bonf_p", "fdr_p", "rf_wins"]
+                "wilcoxon_p", "bonf_p", "fdr_p", "rf_wins",
+                "mean_auc_lr", "mean_auc_rf",
+                "mean_ap_lr", "mean_ap_rf"]
     out_csv = per_species_dir / "model_comparison.csv"
     pd.DataFrame(rows)[csv_cols].to_csv(
         out_csv, index=False, float_format="%.6f"
