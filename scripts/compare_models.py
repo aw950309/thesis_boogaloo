@@ -62,11 +62,26 @@ def load_cv_results(base_dir: Path, species: str, mode: str, variant: str) -> pd
     return pd.read_csv(csv_path)
 
 
-def extract_paired_aucs(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    rf_s = df[df["model"] == "rf"].set_index("fold")["auc"].sort_index()
-    lr_s = df[df["model"] == "logreg"].set_index("fold")["auc"].sort_index()
+def extract_paired_metric(df: pd.DataFrame, metric: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return paired (rf_values, lr_values) for the named per-fold metric column.
+
+    Folds present in both models are matched by index and sorted; folds missing
+    in either model are dropped silently. Generalised version of
+    ``extract_paired_aucs`` — use this for any per-fold metric column produced
+    by ``evaluate_time_splits``.
+    """
+    rf_s = df[df["model"] == "rf"].set_index("fold")[metric].sort_index()
+    lr_s = df[df["model"] == "logreg"].set_index("fold")[metric].sort_index()
     common = rf_s.index.intersection(lr_s.index)
     return rf_s.loc[common].values, lr_s.loc[common].values
+
+
+def extract_paired_aucs(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Back-compat wrapper. Equivalent to ``extract_paired_metric(df, 'auc')``.
+
+    Preserved for ``_internal_audit_check.py`` which imports this symbol.
+    """
+    return extract_paired_metric(df, "auc")
 
 
 def per_model_means(df: pd.DataFrame) -> dict:
@@ -128,6 +143,11 @@ def binomial_test(k: int, n: int) -> tuple[float, float]:
 
 
 def compute_all(per_species_dir: Path) -> tuple[list[dict], dict]:
+    """Compute paired AUC stats + binomial tests across the 24 combinations.
+
+    Behaviour unchanged: AUC-only. Used by ``_internal_audit_check.py``.
+    Includes ``per_model_means`` (mean AUC and mean AP per model) in each row.
+    """
     rows = []
     wilcoxon_pvals = []
 
@@ -159,6 +179,70 @@ def compute_all(per_species_dir: Path) -> tuple[list[dict], dict]:
     for key, modes in groups:
         k, n = wins(modes)
         one_p, two_p = binomial_test(k, n)
+        binomial_results[key] = {"k": k, "n": n, "one_sided_p": one_p, "two_sided_p": two_p}
+
+    return rows, binomial_results
+
+
+def compute_metric_all(per_species_dir: Path, metric: str) -> tuple[list[dict], dict]:
+    """Compute paired stats + binomial tests across the 24 combinations for one metric column.
+
+    Mirrors ``compute_all`` but reads the named per-fold metric column instead
+    of hard-coded ``auc``. Combinations whose cv_results lack the metric column
+    yield a row with only ``species/mode/variant`` (no stats); their Wilcoxon p
+    is NOT included in the FDR / Bonferroni family, so the family size adjusts
+    automatically. ``rf_wins`` is set to ``None`` for skipped rows and ignored
+    by the binomial-test pass.
+
+    Bonferroni and FDR corrections apply within this metric's family, not
+    jointly with AUC. Returns ``(rows, binomial_results)`` in the same shape
+    as ``compute_all``.
+    """
+    rows = []
+    wilcoxon_pvals = []
+    pval_indices = []  # row indices that contributed a Wilcoxon p
+
+    for species, mode, variant in COMBINATIONS:
+        df = load_cv_results(per_species_dir, species, mode, variant)
+        if metric not in df.columns:
+            rows.append({"species": species, "mode": mode, "variant": variant})
+            continue
+        rf_vals, lr_vals = extract_paired_metric(df, metric)
+        if len(rf_vals) == 0:
+            rows.append({"species": species, "mode": mode, "variant": variant})
+            continue
+        stats = paired_stats(rf_vals, lr_vals)
+        wilcoxon_pvals.append(stats["wilcoxon_p"])
+        pval_indices.append(len(rows))
+        rows.append({"species": species, "mode": mode, "variant": variant, **stats})
+
+    if wilcoxon_pvals:
+        bonf_pvals, fdr_pvals = apply_corrections(wilcoxon_pvals)
+        for j, i in enumerate(pval_indices):
+            rows[i]["bonf_p"] = bonf_pvals[j]
+            rows[i]["fdr_p"] = fdr_pvals[j]
+
+    def wins(mode_filter):
+        subset = [
+            r for r in rows
+            if (mode_filter is None or r["mode"] in mode_filter) and "rf_wins" in r
+        ]
+        return sum(1 for r in subset if r["rf_wins"]), len(subset)
+
+    binomial_results = {}
+    groups = [
+        ("all_24", None),
+        ("default", ["default"]),
+        ("road", ["road"]),
+        ("rail", ["rail"]),
+        ("default_road", ["default", "road"]),
+    ]
+    for key, modes in groups:
+        k, n = wins(modes)
+        if n > 0:
+            one_p, two_p = binomial_test(k, n)
+        else:
+            one_p, two_p = float("nan"), float("nan")
         binomial_results[key] = {"k": k, "n": n, "one_sided_p": one_p, "two_sided_p": two_p}
 
     return rows, binomial_results
@@ -463,14 +547,42 @@ def _run_for_tree(label: str, per_species_dir: Path) -> bool:
         print()
         return False
 
+    # AUC pass — unchanged behaviour.
     rows, binomial_results = compute_all(per_species_dir)
 
-    csv_cols = ["species", "mode", "variant", "n",
-                "mean_delta", "sd_delta", "se_delta",
-                "ci_lo", "ci_hi",
-                "wilcoxon_p", "bonf_p", "fdr_p", "rf_wins",
-                "mean_auc_lr", "mean_auc_rf",
-                "mean_ap_lr", "mean_ap_rf"]
+    # AP pass — parallel paired stats on the average_precision column.
+    # Missing-column combinations (e.g. yearly cv_results pre-dating the AP
+    # addition) yield rows with only species/mode/variant and contribute NaN
+    # to the AP columns; the Bonferroni/FDR family auto-shrinks.
+    ap_rows, ap_binomial = compute_metric_all(per_species_dir, "average_precision")
+    ap_by_key = {(r["species"], r["mode"], r["variant"]): r for r in ap_rows}
+
+    AP_SUFFIXED_KEYS = [
+        "n", "mean_delta", "sd_delta", "se_delta",
+        "ci_lo", "ci_hi",
+        "wilcoxon_p", "bonf_p", "fdr_p", "rf_wins",
+    ]
+    for r in rows:
+        key = (r["species"], r["mode"], r["variant"])
+        ap_r = ap_by_key.get(key, {})
+        for k in AP_SUFFIXED_KEYS:
+            r[f"{k}_ap"] = ap_r.get(k)  # None / NaN when AP missing
+
+    csv_cols = [
+        "species", "mode", "variant", "n",
+        # AUC paired stats:
+        "mean_delta", "sd_delta", "se_delta",
+        "ci_lo", "ci_hi",
+        "wilcoxon_p", "bonf_p", "fdr_p", "rf_wins",
+        # Per-model means:
+        "mean_auc_lr", "mean_auc_rf",
+        "mean_ap_lr", "mean_ap_rf",
+        # AP paired stats (NEW):
+        "n_ap",
+        "mean_delta_ap", "sd_delta_ap", "se_delta_ap",
+        "ci_lo_ap", "ci_hi_ap",
+        "wilcoxon_p_ap", "bonf_p_ap", "fdr_p_ap", "rf_wins_ap",
+    ]
     out_csv = per_species_dir / "model_comparison.csv"
     pd.DataFrame(rows)[csv_cols].to_csv(
         out_csv, index=False, float_format="%.6f"
@@ -490,6 +602,19 @@ def _run_for_tree(label: str, per_species_dir: Path) -> bool:
     binom_csv = per_species_dir / "binomial_tests.csv"
     pd.DataFrame(binom_rows).to_csv(binom_csv, index=False, float_format="%.6f")
 
+    binom_rows_ap = [
+        {
+            "group": key,
+            "rf_wins": ap_binomial[key]["k"],
+            "total": ap_binomial[key]["n"],
+            "one_sided_p": ap_binomial[key]["one_sided_p"],
+            "two_sided_p": ap_binomial[key]["two_sided_p"],
+        }
+        for key in binom_order
+    ]
+    binom_ap_csv = per_species_dir / "binomial_tests_ap.csv"
+    pd.DataFrame(binom_rows_ap).to_csv(binom_ap_csv, index=False, float_format="%.6f")
+
     print("paired delta AUC (RF - LR)")
     print()
     print_paired_table(rows)
@@ -498,6 +623,21 @@ def _run_for_tree(label: str, per_species_dir: Path) -> bool:
     print()
     print_binomial_table(binomial_results)
     print()
+
+    ap_rows_with_stats = [r for r in ap_rows if "mean_delta" in r]
+    if ap_rows_with_stats:
+        print("paired delta AP (RF - LR)")
+        print()
+        print_paired_table(ap_rows_with_stats)
+        print()
+        print("binomial win-pattern (RF AP > LR AP)")
+        print()
+        print_binomial_table(ap_binomial)
+        print()
+    else:
+        print("(AP paired stats skipped: average_precision column absent from this tree's cv_results)")
+        print()
+
     print(f"CSV: {out_csv.relative_to(per_species_dir.parent.parent)}")
     print()
     return True
